@@ -7,8 +7,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wasto</title>
   <link rel="apple-touch-icon" sizes="180x180" href="./favicon_io/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="./favicon_io/favicon-16x16.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="./favicon_io/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon_io/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon_io/favicon-16x16.png">
   <link rel="manifest" href="/site.webmanifest">
 
 
@@ -31,6 +31,7 @@
             'bounce-gentle': 'bounce-gentle 2s ease-in-out infinite',
             'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
             'float': 'float 3s ease-in-out infinite',
+            'fade-slide': 'fadeSlideDown 0.3s ease-out forwards',
           },
           keyframes: {
             'bounce-gentle': {
@@ -50,6 +51,10 @@
             'float': {
               '0%, 100%': { transform: 'translateY(0px)' },
               '50%': { transform: 'translateY(-20px)' },
+            },
+            'fadeSlideDown': {
+              '0%': { opacity: '0', transform: 'translateY(-10%)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
             }
           }
         }
@@ -84,65 +89,94 @@
     .hero-gradient {
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
     }
+
+    @keyframes bounce-gentle {
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-10px);
+      }
+    }
+
+    .animate-bounce-gentle {
+      animation: bounce-gentle 1s ease-in-out infinite;
+    }
+
+    .primary-gradient {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+    }
+
+    .canvas-container {
+      background: linear-gradient(135deg, rgba(17, 24, 39, 0.8), rgba(31, 41, 55, 0.6));
+      backdrop-filter: blur(10px);
+    }
+
+    #canvas {
+      max-width: 100%;
+      height: auto;
+      object-fit: contain;
+    }
+
+    @media (max-width: 768px) {
+      .mobile-stack {
+        flex-direction: column;
+      }
+    }
   </style>
 </head>
 
-<body class="bg-gray-50">
+<body class="bg-gray-50 scroll-smooth">
   <!-- Header -->
   <header class="bg-white shadow-lg sticky top-0 z-50">
-    <div class="container mx-auto px-4">
-      <div class="flex items-center justify-between py-4">
+    <div class="container mx-auto px-6 md:px-10 lg:px-16">
+      <div class="flex items-center justify-between py-5 md:py-6">
         <!-- Logo -->
         <div class="flex items-center space-x-4">
           <div class="w-16 h-16 rounded-xl flex items-center justify-center text-white font-bold text-xl">
-            <img src="./Wasto.png" alt="Logo">
+            <img src="./Wasto(1).png" alt="Wasto Logo">
           </div>
-          <span class="text-2xl font-bold text-gray-800">Wasto</span>
+          <span class="text-2xl font-bold text-primary">Wasto</span>
         </div>
 
         <!-- Desktop Navigation -->
-        <nav class="hidden md:flex items-center space-x-8">
+        <nav class="hidden md:flex items-center space-x-10">
           <a href="#" class="text-gray-700 hover:text-primary transition-colors duration-300 font-medium">Home</a>
           <a href="#about" class="text-gray-700 hover:text-primary transition-colors duration-300 font-medium">About</a>
           <a href="#modelDiv"
             class="text-gray-700 hover:text-primary transition-colors duration-300 font-medium">Test</a>
         </nav>
 
-        <!-- Mobile Menu Button -->
-        <button id="mobile-menu-btn" class="md:hidden p-2 rounded-lg hover:bg-gray-100">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+        <!-- Mobile Menu Toggle Button -->
+        <button id="mobile-menu-btn"
+          class="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-transform duration-300">
+          <svg id="menu-icon" class="w-6 h-6 block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          <svg id="close-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
 
       <!-- Mobile Menu -->
-      <div id="mobile-menu" class="hidden md:hidden pb-4">
-        <div class="flex flex-col space-y-4">
-          <a href="#" class="text-gray-700 hover:text-primary transition-colors duration-300">Home</a>
-          <a href="#about" class="text-gray-700 hover:text-primary transition-colors duration-300">About</a>
-          <a href="#modelDiv" class="text-gray-700 hover:text-primary transition-colors duration-300">Test</a>
-          <div class="flex flex-col space-y-2 pt-4">
-            <button
-              class="px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg hover:border-primary hover:text-primary transition-all duration-300">
-              Login
-            </button>
-            <button
-              class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-all duration-300">
-              Sign-up
-            </button>
-          </div>
-        </div>
+      <div id="mobile-menu"
+        class="hidden md:hidden flex flex-col space-y-4 px-6 sm:px-8 lg:px-16 py-4 transition-all duration-300 ease-in-out animate-fade-slide">
+        <a href="#" class="text-gray-700 hover:text-primary transition-colors duration-300">Home</a>
+        <a href="#about" class="text-gray-700 hover:text-primary transition-colors duration-300">About</a>
+        <a href="#modelDiv" class="text-gray-700 hover:text-primary transition-colors duration-300">Test</a>
       </div>
     </div>
   </header>
 
   <main>
     <!-- Hero Section -->
-    <section class="hero-gradient text-white relative overflow-hidden">
-      <div class="absolute inset-0 bg-black opacity-20"></div>
-      <div class="container mx-auto px-4 py-20 relative z-10">
-        <div class="grid lg:grid-cols-2 gap-12 items-center">
+    <section class="hero-gradient text-white relative overflow-hidden px-4 py-24 sm:py-28 lg:py-32">
+      <div class="container mx-auto px-6 sm:px-10 lg:px-20 relative z-10">
+        <div class="grid lg:grid-cols-2 gap-12 sm:gap-16 lg:gap-20 items-center">
           <div class="space-y-6 animate-fade-in-up">
             <h1 class="text-5xl lg:text-7xl font-bold leading-tight">
               <span class="text-primary">Where</span> do I<br>throw it?
@@ -151,7 +185,7 @@
               If you need to know in which container to deposit waste, this website can be useful for you.
             </p>
             <button onclick="document.getElementById('modelDiv').scrollIntoView({ behavior: 'smooth' });"
-              class="inline-flex items-center px-8 py-4 bg-primary text-white rounded-full hover:bg-primary-dark transition-all duration-300 transform hover:scale-105 font-semibold text-lg group">
+              class="inline-flex items-center px-8 py-4 sm:px-10 sm:py-5 lg:px-12 lg:py-6 bg-primary text-white rounded-full hover:bg-primary-dark transition-all duration-300 transform hover:scale-105 font-semibold text-lg group">
               Test it now
               <svg class="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor"
                 viewBox="0 0 24 24">
@@ -170,9 +204,9 @@
     </section>
 
     <!-- About Section -->
-    <section id="about" class="py-20 bg-white">
-      <div class="container mx-auto px-4">
-        <div class="grid lg:grid-cols-2 gap-12 items-center">
+    <section id="about" class="bg-white px-4 py-24 sm:py-28 lg:py-32">
+      <div class="container mx-auto px-6 sm:px-10 lg:px-20">
+        <div class="grid lg:grid-cols-2 gap-12 sm:gap-16 lg:gap-20 items-center">
           <div class="relative">
             <img class="rounded-2xl shadow-xl transform hover:scale-105 transition-transform duration-500"
               src="https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxzZWFyY2h8NXx8ZHVzdGJpbnxlbnwwfHwwfHw=&auto=format&fit=crop&w=500&q=60"
@@ -187,8 +221,8 @@
               it must be deposited. If you want to know more about the techniques used to build this system, you can
               access the GitHub where all the details are found.
             </p>
-            <button onclick="window.open('https://github.com/devisri-charan/Wasto')"
-              class="inline-flex items-center px-8 py-4 bg-gray-800 text-white rounded-full hover:bg-gray-700 transition-all duration-300 transform hover:scale-105 font-semibold group">
+            <button onclick="window.open('https://github.com/vdevisricharan/Wasto')"
+              class="inline-flex items-center px-8 py-4 sm:px-10 sm:py-5 lg:px-12 lg:py-6 bg-gray-800 text-white rounded-full hover:bg-gray-700 transition-all duration-300 transform hover:scale-105 font-semibold group">
               View on GitHub
               <svg class="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" fill="currentColor"
                 viewBox="0 0 24 24">
@@ -202,8 +236,8 @@
     </section>
 
     <!-- Process Steps -->
-    <section class="py-20 bg-gray-900 text-white">
-      <div class="container mx-auto px-4">
+    <section class="bg-gray-900 text-white px-4 py-24 sm:py-28 lg:py-32">
+      <div class="container mx-auto px-6 sm:px-10 lg:px-20">
         <div class="grid md:grid-cols-3 gap-8">
           <!-- Step 1: Take a picture -->
           <div class="text-center space-y-6 group">
@@ -217,10 +251,6 @@
             </div>
             <h3 class="text-2xl font-bold">Take a picture</h3>
             <p class="text-gray-300">Take a photo of the waste you need to recycle.</p>
-            <button onclick="document.getElementById('modelDiv').scrollIntoView({ behavior: 'smooth' });"
-              class="px-6 py-3 bg-primary text-white rounded-full hover:bg-primary-dark transition-all duration-300 transform hover:scale-105 font-semibold">
-              Test it
-            </button>
           </div>
 
           <!-- Step 2: Process it -->
@@ -235,10 +265,6 @@
             </div>
             <h3 class="text-2xl font-bold">Process it</h3>
             <p class="text-gray-300">Process the photo with our advanced neural network.</p>
-            <button onclick="document.getElementById('modelDiv').scrollIntoView({ behavior: 'smooth' });"
-              class="px-6 py-3 bg-primary text-white rounded-full hover:bg-primary-dark transition-all duration-300 transform hover:scale-105 font-semibold">
-              Test it
-            </button>
           </div>
 
           <!-- Step 3: Recycle -->
@@ -253,19 +279,16 @@
             <h3 class="text-2xl font-bold">Recycle</h3>
             <p class="text-gray-300">Use the results of our system and common sense to make the world a better place!
             </p>
-            <button onclick="document.getElementById('modelDiv').scrollIntoView({ behavior: 'smooth' });"
-              class="px-6 py-3 bg-primary text-white rounded-full hover:bg-primary-dark transition-all duration-300 transform hover:scale-105 font-semibold">
-              Test it
-            </button>
+
           </div>
         </div>
       </div>
     </section>
 
     <!-- Classification Result -->
-    <section class="py-20 bg-white">
-      <div class="container mx-auto px-4">
-        <div class="grid lg:grid-cols-2 gap-12 items-center">
+    <section class="bg-white px-4 py-24 sm:py-28 lg:py-32">
+      <div class="container mx-auto px-6 sm:px-10 lg:px-20">
+        <div class="grid lg:grid-cols-2 gap-12 sm:gap-16 lg:gap-20 items-center">
           <div class="relative">
             <img class="rounded-2xl shadow-xl transform hover:scale-105 transition-transform duration-500"
               src="./plastic.jpg" alt="Paper waste">
@@ -280,167 +303,173 @@
     </section>
 
     <!-- Model Testing Section -->
-    <section id="modelDiv" class="py-20 bg-gray-900 text-white">
-      <div class="container mx-auto px-4">
-        <div class="max-w-4xl mx-auto text-center">
-          <h2 class="text-4xl lg:text-5xl font-bold mb-12">Test it</h2>
+    <section id="modelDiv" class="bg-gray-900 text-white px-4 py-24 sm:py-28 lg:py-32">
+      <div class="container mx-auto px-6 sm:px-10 lg:px-20">
+        <!-- Section Header -->
+        <div class="text-center mb-12 lg:mb-16">
+          <h2
+            class="text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-bold mb-4 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+            Test Our Model
+          </h2>
+          <p class="text-lg sm:text-xl text-gray-400 max-w-2xl mx-auto">
+            Upload an image and let our AI model make predictions in real-time
+          </p>
+        </div>
 
-          <!-- Canvas for displaying image -->
-          <div class="mb-8">
-            <canvas id="canvas" class="border-2 border-gray-600 rounded-lg mx-auto max-w-full"></canvas>
-          </div>
+        <!-- Main Content Grid -->
+        <div class="max-w-7xl mx-auto">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 xl:gap-12 sm:gap-16 lg:gap-20 items-start">
 
-          <!-- Drag and Drop Upload Area -->
-          <div class="mb-8">
-            <div id="dropZone"
-              class="relative border-2 border-dashed border-gray-600 rounded-2xl p-12 transition-all duration-300 hover:border-primary hover:bg-gray-800 cursor-pointer group">
-              <input type="file" id="inputFile" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                accept="image/*">
-
-              <div id="dropContent" class="space-y-4">
-                <div
-                  class="w-20 h-20 bg-primary rounded-full flex items-center justify-center mx-auto group-hover:animate-bounce-gentle">
-                  <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                  </svg>
-                </div>
-                <div>
-                  <p class="text-xl font-semibold text-gray-300 group-hover:text-white transition-colors">
-                    Drag & Drop your image here
-                  </p>
-                  <p class="text-gray-500 mt-2">or click to browse files</p>
-                </div>
-              </div>
-
-              <!-- Upload animation overlay -->
-              <div id="uploadAnimation"
-                class="hidden absolute inset-0 bg-primary bg-opacity-20 rounded-2xl flex items-center justify-center">
-                <div class="text-center">
-                  <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                  <p class="text-primary font-semibold">Processing image...</p>
+            <!-- Canvas Section -->
+            <div class="lg:col-span-1 order-2 lg:order-1">
+              <div class="canvas-container rounded-2xl p-4 sm:p-6 border border-gray-700">
+                <h3 class="text-xl sm:text-2xl font-semibold mb-4 text-center text-gray-200">
+                  Preview
+                </h3>
+                <div class="flex justify-center">
+                  <canvas id="canvas" class="border-2 border-gray-600 rounded-xl max-w-full h-auto" width="200"
+                    height="200">
+                  </canvas>
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Predict Button -->
-          <button id="predictButton"
-            class="px-8 py-4 bg-red-600 text-white rounded-full hover:bg-red-700 transition-all duration-300 transform hover:scale-105 font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed mb-8">
-            <span class="flex items-center justify-center">
-              <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z">
-                </path>
-              </svg>
-              Predict
-            </span>
-          </button>
+            <!-- Upload Section -->
+            <div class="lg:col-span-1 order-1 lg:order-2">
+              <div class="space-y-6">
+                <!-- Drag and Drop Upload Area -->
+                <div id="dropZone"
+                  class="relative border-2 border-dashed border-gray-600 rounded-2xl p-8 sm:p-12 lg:p-8 xl:p-12 transition-all duration-300 hover:border-red-500 hover:bg-gray-800/50 cursor-pointer group">
+                  <input type="file" id="inputFile" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    accept="image/*">
 
-          <!-- Prediction Result -->
-          <div class="glass-effect rounded-2xl p-6">
-            <p id="predictionLabel" class="text-lg text-gray-300">
-              The model is loading, please don't press predict button until this text changes.
-            </p>
+                  <div id="dropContent" class="space-y-4 text-center">
+                    <div
+                      class="w-16 h-16 sm:w-20 sm:h-20 primary-gradient rounded-full flex items-center justify-center mx-auto group-hover:animate-bounce-gentle transition-all duration-300">
+                      <svg class="w-8 h-8 sm:w-10 sm:h-10 text-white" fill="none" stroke="currentColor"
+                        viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
+                        </path>
+                      </svg>
+                    </div>
+                    <div>
+                      <p
+                        class="text-lg sm:text-xl font-semibold text-gray-300 group-hover:text-white transition-colors">
+                        Drag & Drop Image
+                      </p>
+                      <p class="text-sm sm:text-base text-gray-500 mt-2">
+                        or click to browse files
+                      </p>
+                      <p class="text-xs text-gray-600 mt-1">
+                        Supports JPG, PNG, GIF
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- Upload animation overlay -->
+                  <div id="uploadAnimation"
+                    class="hidden absolute inset-0 bg-red-600 bg-opacity-20 rounded-2xl flex items-center justify-center">
+                    <div class="text-center">
+                      <div
+                        class="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-red-500 mx-auto mb-4">
+                      </div>
+                      <p class="text-red-400 font-semibold text-sm sm:text-base">Processing image...</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Predict Button -->
+                <button id="predictButton"
+                  class="w-full px-6 py-4 sm:px-8 sm:py-5 primary-gradient text-white rounded-2xl hover:shadow-lg hover:shadow-red-500/25 transition-all duration-300 transform hover:scale-[1.02] font-semibold text-lg sm:text-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                  <span class="flex items-center justify-center">
+                    <svg class="w-5 h-5 sm:w-6 sm:h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 10V3L4 14h7v7l9-11h-7z">
+                      </path>
+                    </svg>
+                    Predict Now
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Results Section -->
+            <div class="lg:col-span-1 order-3">
+              <div class="space-y-6">
+                <!-- Prediction Result -->
+                <div class="glass-effect rounded-2xl p-6 sm:p-10 border border-gray-700">
+                  <div class="flex items-center mb-4">
+                    <div class="w-3 h-3 bg-blue-500 rounded-full mr-3"></div>
+                    <h3 class="text-lg sm:text-xl font-semibold text-gray-200">Prediction Result</h3>
+                  </div>
+                  <div id="resultContainer" class="space-y-3">
+                    <p class="text-sm sm:text-base text-gray-400">
+                      Upload an image and click predict to see results
+                    </p>
+                  </div>
+                </div>
+
+                <!-- Accuracy Score -->
+                <div class="glass-effect rounded-2xl p-6 sm:p-10 border border-gray-700">
+                  <div class="flex items-center mb-4">
+                    <div class="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
+                    <h3 class="text-lg sm:text-xl font-semibold text-gray-200">Accuracy</h3>
+                  </div>
+                  <div id="accuracyContainer">
+                    <div class="w-full bg-gray-700 rounded-full h-3 mb-2">
+                      <div id="accuracyBar"
+                        class="bg-gradient-to-r from-green-600 to-green-400 h-3 rounded-full transition-all duration-500"
+                        style="width: 0%"></div>
+                    </div>
+                    <p id="accuracyText" class="text-sm text-gray-400">0%</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
     <!-- Logo Section -->
-    <section class="py-16 bg-white text-center">
+    <section class="px-4 py-16 bg-white text-center">
       <div class="w-48 h-48 rounded-full flex items-center justify-center mx-auto hover:animate-pulse cursor-pointer">
-        <img src="./Wasto.png" alt="Logo">
+        <img src="./Wasto.png" alt="Wasto Logo">
       </div>
     </section>
   </main>
 
   <!-- Footer -->
-  <footer class="bg-gray-800 text-white py-16">
-    <div class="container mx-auto px-4">
-      <div class="grid md:grid-cols-4 gap-8 mb-12">
-        <div class="space-y-4">
-          <h5 class="font-bold text-lg">Navigation</h5>
-          <ul class="space-y-2">
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Home</a></li>
-            <li><a href="#about" class="text-gray-400 hover:text-primary transition-colors">About</a></li>
-            <li><a href="#modelDiv" class="text-gray-400 hover:text-primary transition-colors">Test</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Features</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">FAQs</a></li>
-          </ul>
-        </div>
-
-        <div class="space-y-4">
-          <h5 class="font-bold text-lg">Support</h5>
-          <ul class="space-y-2">
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Help Center</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Contact Us</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Privacy Policy</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Terms of Service</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Documentation</a></li>
-          </ul>
-        </div>
-
-        <div class="space-y-4">
-          <h5 class="font-bold text-lg">Resources</h5>
-          <ul class="space-y-2">
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Blog</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Case Studies</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Whitepaper</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">API Docs</a></li>
-            <li><a href="#" class="text-gray-400 hover:text-primary transition-colors">Community</a></li>
-          </ul>
-        </div>
-
-        <div class="space-y-4">
-          <h5 class="font-bold text-lg">Subscribe to our newsletter</h5>
-          <p class="text-gray-400">Monthly digest of what's new and exciting from us.</p>
-          <div class="flex flex-col gap-2">
-            <input type="email" placeholder="Enter your email"
-              class="flex-1 px-4 py-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50">
-            <button
-              class="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary-dark transition-all duration-300 font-semibold">
-              Subscribe
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="border-t border-gray-700 pt-8 flex flex-col sm:flex-row justify-between items-center">
-        <p class="text-gray-400">&copy; 2024 Wasto, All rights reserved.</p>
-        <div class="flex space-x-6 mt-4 sm:mt-0">
-          <a href="#" class="text-gray-400 hover:text-primary transition-colors">
-            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-              <path
-                d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z" />
-            </svg>
-          </a>
-          <a href="#" class="text-gray-400 hover:text-primary transition-colors">
-            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-              <path
-                d="M22.46 6c-.77.35-1.6.58-2.46.69.88-.53 1.56-1.37 1.88-2.38-.83.5-1.75.85-2.72 1.05C18.37 4.5 17.26 4 16 4c-2.35 0-4.27 1.92-4.27 4.29 0 .34.04.67.11.98C8.28 9.09 5.11 7.38 3 4.79c-.37.63-.58 1.37-.58 2.15 0 1.49.75 2.81 1.91 3.56-.71 0-1.37-.2-1.95-.5v.03c0 2.08 1.48 3.82 3.44 4.21a4.22 4.22 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.98 8.521 8.521 0 0 1-5.33 1.84c-.34 0-.68-.02-1.02-.06C3.44 20.29 5.7 21 8.12 21 16 21 20.33 14.46 20.33 8.79c0-.19 0-.37-.01-.56.84-.6 1.56-1.36 2.14-2.23z" />
-            </svg>
-          </a>
-          <a href="#" class="text-gray-400 hover:text-primary transition-colors">
-            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-              <path
-                d="M12.5.75C6.146.75 1 5.896 1 12.25c0 5.089 3.292 9.387 7.863 10.91.575-.105.79-.251.79-.544 0-.273-.014-1.178-.014-2.142-2.889.532-3.636-.704-3.866-1.35-.13-.331-.69-1.352-1.18-1.625-.402-.216-.977-.748-.014-.762.906-.014 1.553.834 1.769 1.179 1.035 1.74 2.688 1.25 3.349.948.1-.747.402-1.25.733-1.538-2.559-.287-5.232-1.279-5.232-5.678 0-1.25.445-2.285 1.178-3.09-.115-.288-.517-1.467.115-3.048 0 0 .963-.302 3.163 1.179.92-.259 1.897-.388 2.875-.388.977 0 1.955.129 2.875.388 2.2-1.495 3.162-1.179 3.162-1.179.633 1.581.23 2.76.115 3.048.733.805 1.179 1.825 1.179 3.09 0 4.413-2.688 5.39-5.247 5.678.417.36.776 1.05.776 2.128 0 1.538-.014 2.774-.014 3.162 0 .302.216.661.79.547C20.709 21.637 24 17.324 24 12.25 24 5.896 18.854.75 12.5.75z" />
-            </svg>
-          </a>
-        </div>
-      </div>
-    </div>
+  <footer class="bg-gray-800 text-white py-16 text-center">
+    <p class="text-gray-400">&copy; 2024 Wasto, All rights reserved.</p>
   </footer>
 
   <script>
     // Mobile menu toggle
     const mobileMenuBtn = document.getElementById('mobile-menu-btn');
     const mobileMenu = document.getElementById('mobile-menu');
+    const menuIcon = document.getElementById('menu-icon');
+    const closeIcon = document.getElementById('close-icon');
 
     mobileMenuBtn.addEventListener('click', () => {
-      mobileMenu.classList.toggle('hidden');
+      const isHidden = mobileMenu.classList.contains('hidden');
+
+      if (isHidden) {
+        mobileMenu.classList.remove('hidden');
+        mobileMenu.classList.remove('opacity-0');
+        mobileMenu.classList.add('animate-fade-slide');
+      } else {
+        mobileMenu.classList.add('hidden');
+        mobileMenu.classList.remove('animate-fade-slide');
+      }
+
+      // Toggle icons
+      menuIcon.classList.toggle('hidden');
+      closeIcon.classList.toggle('hidden');
     });
 
-    // Drag and drop functionality
+    // File upload handling
     const dropZone = document.getElementById('dropZone');
     const inputFile = document.getElementById('inputFile');
     const canvas = document.getElementById('canvas');
@@ -448,164 +477,136 @@
     const uploadAnimation = document.getElementById('uploadAnimation');
     const dropContent = document.getElementById('dropContent');
     const predictButton = document.getElementById('predictButton');
-    const predictionLabel = document.getElementById('predictionLabel');
 
-    let currentImage = null;
-
-    // Set canvas size
-    canvas.width = 300;
-    canvas.height = 300;
-
-    // Prevent default drag behaviors
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-      dropZone.addEventListener(eventName, preventDefaults, false);
-      document.body.addEventListener(eventName, preventDefaults, false);
-    });
-
-    // Highlight drop area when item is dragged over it
-    ['dragenter', 'dragover'].forEach(eventName => {
-      dropZone.addEventListener(eventName, highlight, false);
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-      dropZone.addEventListener(eventName, unhighlight, false);
-    });
-
-    // Handle dropped files
-    dropZone.addEventListener('drop', handleDrop, false);
-    inputFile.addEventListener('change', handleFileSelect, false);
-
-    function preventDefaults(e) {
+    // Drag and drop events
+    dropZone.addEventListener('dragover', (e) => {
       e.preventDefault();
-      e.stopPropagation();
-    }
+      dropZone.classList.add('border-red-500', 'bg-gray-800/50');
+    });
 
-    function highlight(e) {
-      dropZone.classList.add('border-primary', 'bg-gray-800');
-      dropZone.classList.remove('border-gray-600');
-    }
+    dropZone.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-red-500', 'bg-gray-800/50');
+    });
 
-    function unhighlight(e) {
-      dropZone.classList.remove('border-primary', 'bg-gray-800');
-      dropZone.classList.add('border-gray-600');
-    }
-
-    function handleDrop(e) {
-      const dt = e.dataTransfer;
-      const files = dt.files;
-      handleFiles(files);
-    }
-
-    function handleFileSelect(e) {
-      const files = e.target.files;
-      handleFiles(files);
-    }
-
-    function handleFiles(files) {
-      if (files.length > 0 && files[0].type.startsWith('image/')) {
-        showUploadAnimation();
-        const file = files[0];
-        const reader = new FileReader();
-
-        reader.onload = function (e) {
-          const img = new Image();
-          img.onload = function () {
-            // Clear canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Calculate dimensions to fit image in canvas while maintaining aspect ratio
-            const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
-            const x = (canvas.width / 2) - (img.width / 2) * scale;
-            const y = (canvas.height / 2) - (img.height / 2) * scale;
-
-            ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
-            currentImage = img;
-
-            hideUploadAnimation();
-            updateDropZoneWithImage(file.name);
-          };
-          img.src = e.target.result;
-        };
-
-        reader.readAsDataURL(file);
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-red-500', 'bg-gray-800/50');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        handleFileUpload(files[0]);
       }
-    }
+    });
 
-    function showUploadAnimation() {
-      uploadAnimation.classList.remove('hidden');
-      dropContent.classList.add('opacity-50');
-    }
+    inputFile.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFileUpload(e.target.files[0]);
+      }
+    });
 
-    function hideUploadAnimation() {
-      uploadAnimation.classList.add('hidden');
-      dropContent.classList.remove('opacity-50');
-    }
-
-    function updateDropZoneWithImage(fileName) {
-      dropContent.innerHTML = `
-        <div class="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto">
-          <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-          </svg>
-        </div>
-        <div>
-          <p class="text-xl font-semibold text-green-400">Image uploaded successfully!</p>
-          <p class="text-gray-500 mt-2">${fileName}</p>
-          <p class="text-sm text-gray-400 mt-1">Click to upload a different image</p>
-        </div>
-      `;
-    }
-
-    // Predict button functionality
-    predictButton.addEventListener('click', async function (e) {
-      e.preventDefault();
-
-      if (!currentImage) {
-        alert('Please upload an image first!');
+    function handleFileUpload(file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Please upload an image file');
         return;
       }
 
-      // Disable button and show loading state
+      // Show upload animation
+      dropContent.classList.add('hidden');
+      uploadAnimation.classList.remove('hidden');
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          // Clear canvas and draw image
+          canvas.width = 280;
+          canvas.height = 280;
+
+          // Calculate aspect ratio and draw centered
+          const aspectRatio = img.width / img.height;
+          let drawWidth, drawHeight;
+
+          if (aspectRatio > 1) {
+            drawWidth = 280;
+            drawHeight = 280 / aspectRatio;
+          } else {
+            drawWidth = 280 * aspectRatio;
+            drawHeight = 280;
+          }
+
+          const x = (280 - drawWidth) / 2;
+          const y = (280 - drawHeight) / 2;
+
+          ctx.fillStyle = '#374151';
+          ctx.fillRect(0, 0, 280, 280);
+          ctx.drawImage(img, x, y, drawWidth, drawHeight);
+
+          // Hide upload animation and show content
+          setTimeout(() => {
+            uploadAnimation.classList.add('hidden');
+            dropContent.classList.remove('hidden');
+            predictButton.disabled = false;
+          }, 1000);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Predict button functionality
+    predictButton.addEventListener('click', () => {
+      // Simulate prediction
       predictButton.disabled = true;
       predictButton.innerHTML = `
-        <span class="flex items-center justify-center">
-          <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-          Processing...
-        </span>
-      `;
+                <span class="flex items-center justify-center">
+                    <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                    Predicting...
+                </span>
+            `;
 
-      // Simulate prediction process
       setTimeout(() => {
-        const predictions = ['Paper', 'Plastic', 'Glass', 'Metal', 'Organic'];
+        // Mock prediction results
+        const predictions = ['Aluminium', 'Packaging', 'Glass', 'Organic', 'Other Plastics', 'Paper and Cardboard', 'Plastic', 'Textiles', 'Wood'];
         const randomPrediction = predictions[Math.floor(Math.random() * predictions.length)];
-        const confidence = (Math.random() * 0.3 + 0.7) * 100; // 70-100% confidence
+        const accuracy = Math.floor(Math.random() * 40) + 60; // 60-99%
 
-        predictionLabel.innerHTML = `
-          <div class="text-center space-y-2">
-            <div class="text-2xl font-bold text-primary">${randomPrediction}</div>
-            <div class="text-sm text-gray-400">Confidence: ${confidence.toFixed(1)}%</div>
-            <div class="w-full bg-gray-700 rounded-full h-2 mt-4">
-              <div class="bg-primary h-2 rounded-full transition-all duration-1000" style="width: ${confidence}%"></div>
-            </div>
-          </div>
-        `;
+        document.getElementById('resultContainer').innerHTML = `
+                    <div class="text-2xl font-bold text-white">${randomPrediction}</div>
+                    <p class="text-gray-400 text-sm">Detected object class</p>
+                `;
 
-        // Re-enable button
+        document.getElementById('accuracyBar').style.width = accuracy + '%';
+        document.getElementById('accuracyText').textContent = accuracy + '%';
+
         predictButton.disabled = false;
         predictButton.innerHTML = `
-          <span class="flex items-center justify-center">
-            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-            </svg>
-            Predict Again
-          </span>
-        `;
+                    <span class="flex items-center justify-center">
+                        <svg class="w-5 h-5 sm:w-6 sm:h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                d="M13 10V3L4 14h7v7l9-11h-7z">
+                            </path>
+                        </svg>
+                        Predict Again
+                    </span>
+                `;
       }, 2000);
     });
 
+    // Initialize canvas
+    canvas.width = 280;
+    canvas.height = 280;
+    ctx.fillStyle = '#374151';
+    ctx.fillRect(0, 0, 280, 280);
+    ctx.fillStyle = '#9CA3AF';
+    ctx.font = '16px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Upload an image', 140, 140);
+
     // Simulate model loading
     setTimeout(() => {
-      predictionLabel.textContent = "Model loaded successfully! Upload an image and click predict to test the waste classification.";
+      document.getElementById('predictionLabel').textContent = 'Model loaded successfully. Ready to make predictions!';
+      document.querySelector('#predictionLabel').parentElement.querySelector('.w-3').classList.remove('bg-yellow-500', 'animate-pulse');
+      document.querySelector('#predictionLabel').parentElement.querySelector('.w-3').classList.add('bg-green-500');
     }, 3000);
 
     // Smooth scrolling for navigation links
