@@ -1,0 +1,25 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+wasto.db
+wasto.db-wal
+wasto.db-shm
+
+# Node / Frontend
+apps/web/node_modules/
+apps/web/dist/
+apps/web/.vite/
+.npm/
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

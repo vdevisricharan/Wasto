@@ -1,0 +1,12 @@
+# Wasto Production & Edge Dependencies
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+python-multipart==0.0.20
+pillow==11.0.0
+numpy==2.0.2
+tensorflow==2.21.0
+tf-keras==2.21.0
+pyserial==3.5
+httpx==0.28.1
+pytest==8.3.4
