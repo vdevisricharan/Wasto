@@ -259,7 +259,7 @@ export const ClassifyView: React.FC = () => {
                 <div className="space-y-3 w-full">
                   <img
                     src={previewUrl}
-                    alt="Uploaded preview"
+                    alt={selectedFile?.name ? `Uploaded waste classification sample: ${selectedFile.name}` : "Uploaded waste classification sample preview"}
                     className="max-h-52 mx-auto rounded-xl object-contain shadow-lg"
                   />
                   <p className="text-xs text-gray-400 font-mono truncate">{selectedFile?.name}</p>

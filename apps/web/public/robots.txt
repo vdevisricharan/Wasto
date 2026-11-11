@@ -1,0 +1,10 @@
+# robots.txt for Wasto Automated Waste Classification & Tracking Platform
+# https://wasto.netlify.app
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# Sitemaps
+Sitemap: https://wasto.netlify.app/sitemap.xml
+Host: https://wasto.netlify.app

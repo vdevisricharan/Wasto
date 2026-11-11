@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Camera, Layers, History, Cpu, Truck, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Activity, Camera, Layers, History, Cpu, Truck } from 'lucide-react';
 
 interface NavbarProps {
   currentTab: string;
@@ -29,16 +29,30 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab, apiStat
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Brand */}
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onSelectTab('overview')}>
-            <div className="w-9 h-9 rounded-xl bg-wasto-500/20 border border-wasto-500/40 flex items-center justify-center p-1.5 shadow-lg shadow-wasto-500/10">
-              <img src="/logo.png" alt="Wasto Logo" className="w-full h-full object-contain" />
+          <a
+            href="#overview"
+            onClick={(e) => {
+              e.preventDefault();
+              onSelectTab('overview');
+            }}
+            className="flex items-center space-x-3 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-wasto-500 rounded-lg p-1"
+            title="Wasto - Back to Overview"
+          >
+            <div className="w-9 h-9 rounded-xl bg-wasto-500/20 border border-wasto-500/40 flex items-center justify-center p-1.5 shadow-lg shadow-wasto-500/10 transition-transform group-hover:scale-105">
+              <img
+                src="/logo.png"
+                alt="Wasto Logo - Automated Waste Segregation Platform"
+                className="w-full h-full object-contain"
+                width={36}
+                height={36}
+              />
             </div>
             <div>
               <span className="text-xl font-bold tracking-tight text-white flex items-center gap-1.5">
                 WASTO <span className="text-xs px-2 py-0.5 rounded-full bg-wasto-500/10 text-wasto-400 border border-wasto-500/20 font-mono">v1.0</span>
               </span>
             </div>
-          </div>
+          </a>
 
           {/* Navigation Links */}
           <nav className="hidden md:flex space-x-1" aria-label="Main Navigation">
@@ -46,18 +60,23 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab, apiStat
               const Icon = item.icon;
               const isActive = currentTab === item.id;
               return (
-                <button
+                <a
                   key={item.id}
-                  onClick={() => onSelectTab(item.id)}
+                  href={`#${item.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onSelectTab(item.id);
+                  }}
                   className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                     isActive
-                      ? 'bg-wasto-500/15 text-wasto-400 border border-wasto-500/30'
+                      ? 'bg-wasto-500/15 text-wasto-400 border border-wasto-500/30 shadow-sm'
                       : 'text-gray-400 hover:text-gray-200 hover:bg-surface-800'
                   }`}
+                  aria-current={isActive ? 'page' : undefined}
                 >
                   <Icon className="w-4 h-4" />
                   <span>{item.label}</span>
-                </button>
+                </a>
               );
             })}
           </nav>
@@ -89,26 +108,34 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab, apiStat
       </div>
 
       {/* Mobile nav bar */}
-      <div className="md:hidden flex overflow-x-auto py-2 px-4 space-x-2 border-t border-gray-800 bg-surface-900/95 scrollbar-none">
+      <nav
+        aria-label="Mobile Navigation"
+        className="md:hidden flex overflow-x-auto py-2 px-4 space-x-2 border-t border-gray-800 bg-surface-900/95 scrollbar-none"
+      >
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
           return (
-            <button
+            <a
               key={item.id}
-              onClick={() => onSelectTab(item.id)}
+              href={`#${item.id}`}
+              onClick={(e) => {
+                e.preventDefault();
+                onSelectTab(item.id);
+              }}
               className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
                 isActive
                   ? 'bg-wasto-500/20 text-wasto-400 border border-wasto-500/30'
                   : 'text-gray-400 hover:text-gray-200 bg-surface-800'
               }`}
+              aria-current={isActive ? 'page' : undefined}
             >
               <Icon className="w-3.5 h-3.5" />
               <span>{item.label}</span>
-            </button>
+            </a>
           );
         })}
-      </div>
+      </nav>
     </header>
   );
 };
