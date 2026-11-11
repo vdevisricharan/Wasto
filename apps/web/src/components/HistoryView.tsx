@@ -1,203 +1,540 @@
-import React, { useState, useEffect } from 'react';
-import { History, Download, Filter, Search, CheckCircle2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
-import { fetchHistory } from '../api/client';
-import { PredictionResult, RoutingCategory } from '../types';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  RefreshCw,
+  Search,
+} from 'lucide-react';
+import { HistoryItem, HistoryResponse } from '../types';
+import { API_BASE, fetchHistory } from '../api/client';
+import { MATERIAL_CLASSES, OperationalModeInfo } from '../theme/tokens';
+import { CategoryBadge } from './ui/CategoryBadge';
+import { PageHeader } from './ui/PageHeader';
+import { StatusNotice } from './ui/StatusNotice';
 
-export const HistoryView: React.FC = () => {
-  const [items, setItems] = useState<PredictionResult[]>([]);
-  const [total, setTotal] = useState(0);
+interface HistoryViewProps {
+  modeInfo: OperationalModeInfo;
+}
+
+export const HistoryView: React.FC<HistoryViewProps> = ({ modeInfo }) => {
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(15);
-  const [selectedMaterial, setSelectedMaterial] = useState<string>('');
-  const [selectedRouting, setSelectedRouting] = useState<string>('');
-  const [isLoading, setIsLoading] = useState(false);
+  const pageSize = 15;
+  const [materialFilter, setMaterialFilter] = useState<string>('');
+  const [routingFilter, setRoutingFilter] = useState<string>('');
+  const [certaintyFilter, setCertaintyFilter] = useState<'all' | 'confident' | 'uncertain'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const loadData = async () => {
-    setIsLoading(true);
+  const [historyData, setHistoryData] = useState<HistoryResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+
+  const loadPage = useCallback(async () => {
+    setLoading(true);
     try {
-      const data = await fetchHistory(page, pageSize, selectedMaterial || undefined, selectedRouting || undefined);
-      setItems(data.items || []);
-      setTotal(data.total || 0);
-    } catch (e) {
-      // client fallback
+      const isUncertain =
+        certaintyFilter === 'all'
+          ? undefined
+          : certaintyFilter === 'uncertain';
+
+      const res = await fetchHistory(
+        page,
+        pageSize,
+        materialFilter || undefined,
+        routingFilter || undefined,
+        isUncertain
+      );
+      setHistoryData(res);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
+  }, [page, materialFilter, routingFilter, certaintyFilter]);
 
   useEffect(() => {
-    loadData();
-  }, [page, selectedMaterial, selectedRouting]);
+    loadPage();
+  }, [loadPage]);
 
-  const totalPages = Math.ceil(total / pageSize) || 1;
+  const rawItems = historyData?.items ?? [];
+  const filteredItems = rawItems.filter((item) => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    const rowId = (item.id || item.prediction_id || '').toLowerCase();
+    return (
+      rowId.includes(q) ||
+      (item.filename || '').toLowerCase().includes(q) ||
+      String(item.material_label).toLowerCase().includes(q)
+    );
+  });
 
-  const downloadCsv = () => {
-    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-    window.open(`${apiBase}/api/export/predictions.csv`, '_blank');
+  const hasActiveFilters =
+    Boolean(materialFilter) ||
+    Boolean(routingFilter) ||
+    certaintyFilter !== 'all' ||
+    Boolean(searchQuery.trim());
+
+  const resetFilters = () => {
+    setMaterialFilter('');
+    setRoutingFilter('');
+    setCertaintyFilter('all');
+    setSearchQuery('');
+    setPage(1);
+  };
+
+  const getRowId = (row: HistoryItem, index: number) =>
+    row.id || row.prediction_id || `${row.timestamp}-${index}`;
+
+  const formatDate = (ts: number) =>
+    new Date(ts * 1000).toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+  const formatFullDate = (ts: number) =>
+    new Date(ts * 1000).toLocaleString();
+
+  const renderExpandedDetails = (row: HistoryItem) => {
+    const sortedScores = Object.entries(row.scores || {}).sort(
+      (a, b) => b[1] - a[1]
+    );
+
+    return (
+      <div className="p-4 rounded-[8px] bg-[#F7F8F4] border border-[#DCE3DA] space-y-4">
+        {row.is_uncertain && row.uncertainty_reason && (
+          <StatusNotice tone="warning" title="Held for manual review">
+            {row.uncertainty_reason}
+          </StatusNotice>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <dl className="space-y-2 text-[13px]">
+            <div className="flex justify-between gap-3">
+              <dt className="text-[#526158]">Prediction ID</dt>
+              <dd className="font-mono text-[#18251D] truncate max-w-[220px]">
+                {row.id || row.prediction_id || '—'}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-[#526158]">Recorded at</dt>
+              <dd className="text-[#18251D] tabular-nums">
+                {formatFullDate(row.timestamp)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-[#526158]">Input mode</dt>
+              <dd className="text-[#18251D] font-medium">
+                {row.source_mode || 'SINGLE'}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-[#526158]">Latency</dt>
+              <dd className="text-[#18251D] tabular-nums">
+                {(row.latency_ms ?? 0).toFixed(1)} ms
+              </dd>
+            </div>
+          </dl>
+
+          {sortedScores.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[12px] font-semibold text-[#526158]">
+                Top class probabilities
+              </p>
+              {sortedScores.slice(0, 4).map(([cls, score]) => (
+                <div key={cls} className="space-y-1">
+                  <div className="flex justify-between text-[12px]">
+                    <span className="text-[#18251D] font-medium">{cls}</span>
+                    <span className="tabular-nums text-[#526158]">
+                      {(score * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-[#DCE3DA]/70 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-[#245C3B]"
+                      style={{ width: `${Math.max(2, score * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div className="space-y-6 animate-fade-slide">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <History className="w-6 h-6 text-wasto-400" />
-            Classification History & Audit Log
-          </h2>
-          <p className="text-xs text-gray-400 mt-1">
-            Auditable record of all edge inference decisions with confidence scores and routing categories.
-          </p>
-        </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="History"
+        description="Inspect past image classifications, model confidence scores, and manual review flags."
+        modeInfo={modeInfo}
+        actions={
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={loadPage}
+              className="inline-flex items-center justify-center gap-2 px-3.5 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#18251D] text-[14px] font-medium transition-colors"
+            >
+              <RefreshCw size={15} strokeWidth={1.85} aria-hidden="true" />
+              <span>Refresh</span>
+            </button>
 
-        <button
-          onClick={downloadCsv}
-          className="px-4 py-2 rounded-xl bg-surface-800 hover:bg-surface-700 border border-gray-700 text-xs font-semibold text-white flex items-center space-x-1.5 transition-all shadow-md active:scale-95"
-        >
-          <Download className="w-4 h-4 text-wasto-400" />
-          <span>Export Full CSV</span>
-        </button>
-      </div>
+            {modeInfo.apiReachable ? (
+              <a
+                href={`${API_BASE}/api/export/predictions.csv`}
+                download
+                className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] text-white text-[14px] font-medium transition-colors"
+              >
+                <Download size={16} strokeWidth={1.85} aria-hidden="true" />
+                <span>Export CSV</span>
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled
+                title="CSV export requires a connected backend API"
+                className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-[8px] bg-[#DCE3DA] text-[#526158] text-[14px] font-medium cursor-not-allowed"
+              >
+                <Download size={16} strokeWidth={1.85} aria-hidden="true" />
+                <span>Export CSV</span>
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {/* Filter Bar */}
-      <div className="glass-card p-4 rounded-xl border border-gray-800 flex flex-wrap items-center gap-4 text-xs">
-        <div className="flex items-center space-x-1.5 text-gray-400 font-semibold">
-          <Filter className="w-3.5 h-3.5" />
-          <span>Filter By:</span>
-        </div>
+      <section
+        aria-label="History filters"
+        className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-4 space-y-3"
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div>
+            <label
+              htmlFor="history-search"
+              className="block text-[12px] font-medium text-[#526158] mb-1"
+            >
+              Search filename or ID
+            </label>
+            <div className="relative">
+              <Search
+                size={15}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#526158] pointer-events-none"
+                aria-hidden="true"
+              />
+              <input
+                id="history-search"
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter current page…"
+                className="w-full min-h-[44px] pl-9 pr-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D] placeholder:text-[#526158]"
+              />
+            </div>
+          </div>
 
-        <select
-          value={selectedMaterial}
-          onChange={(e) => {
-            setSelectedMaterial(e.target.value);
-            setPage(1);
-          }}
-          className="px-3 py-1.5 rounded-lg bg-surface-800 border border-gray-700 text-gray-200"
-        >
-          <option value="">All Material Classes</option>
-          <option value="Glass">Glass</option>
-          <option value="Plastic">Plastic</option>
-          <option value="Paper and Cardboard">Paper and Cardboard</option>
-          <option value="Organic Waste">Organic Waste</option>
-          <option value="Aluminium">Aluminium</option>
-          <option value="Carton">Carton</option>
-          <option value="Other Plastics">Other Plastics</option>
-          <option value="Textiles">Textiles</option>
-          <option value="Wood">Wood</option>
-        </select>
-
-        <select
-          value={selectedRouting}
-          onChange={(e) => {
-            setSelectedRouting(e.target.value);
-            setPage(1);
-          }}
-          className="px-3 py-1.5 rounded-lg bg-surface-800 border border-gray-700 text-gray-200"
-        >
-          <option value="">All Operational Chutes</option>
-          <option value="Recyclable">Chute 2: Recyclable</option>
-          <option value="Organic">Chute 1: Organic</option>
-          <option value="Residual">Chute 3: Residual</option>
-          <option value="Unknown / Manual Review">Manual Review Required</option>
-        </select>
-
-        <div className="ml-auto text-gray-400 font-mono text-[11px]">
-          Showing {items.length} of {total} records
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="glass-card rounded-2xl border border-gray-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-surface-800/80 text-gray-400 border-b border-gray-700 font-medium">
-              <tr>
-                <th className="py-3 px-4">Timestamp</th>
-                <th className="py-3 px-4">Prediction ID</th>
-                <th className="py-3 px-4">Image Filename</th>
-                <th className="py-3 px-4">Material Class</th>
-                <th className="py-3 px-4">Confidence</th>
-                <th className="py-3 px-4">Operational Routing</th>
-                <th className="py-3 px-4">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800/60 font-mono">
-              {items.map((row) => (
-                <tr key={row.prediction_id} className="hover:bg-surface-800/40 transition-colors">
-                  <td className="py-3 px-4 text-gray-400">
-                    {new Date(row.timestamp * 1000).toLocaleTimeString()}
-                  </td>
-                  <td className="py-3 px-4 font-bold text-gray-300 truncate max-w-[120px]">
-                    {row.prediction_id}
-                  </td>
-                  <td className="py-3 px-4 font-sans text-gray-200 truncate max-w-[150px]">
-                    {row.filename}
-                  </td>
-                  <td className="py-3 px-4 font-sans font-semibold text-white">
-                    {row.material_label}
-                  </td>
-                  <td className="py-3 px-4 text-wasto-400 font-bold">
-                    {(row.confidence * 100).toFixed(1)}%
-                  </td>
-                  <td className="py-3 px-4 font-sans">
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
-                        row.routing_category === 'Organic'
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                          : row.routing_category === 'Recyclable'
-                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                          : row.routing_category === 'Residual'
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                          : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
-                      }`}
-                    >
-                      {row.routing_category}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    {row.is_uncertain ? (
-                      <span className="text-rose-400 flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" /> Flagged
-                      </span>
-                    ) : (
-                      <span className="text-emerald-400 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Normal
-                      </span>
-                    )}
-                  </td>
-                </tr>
+          <div>
+            <label
+              htmlFor="history-material"
+              className="block text-[12px] font-medium text-[#526158] mb-1"
+            >
+              Material
+            </label>
+            <select
+              id="history-material"
+              value={materialFilter}
+              onChange={(e) => {
+                setMaterialFilter(e.target.value);
+                setPage(1);
+              }}
+              className="w-full min-h-[44px] px-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+            >
+              <option value="">All materials</option>
+              {MATERIAL_CLASSES.map((cls) => (
+                <option key={cls} value={cls}>
+                  {cls}
+                </option>
               ))}
-              {items.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-8 text-center text-gray-500">
-                    No classification records matching active filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+            </select>
+          </div>
 
-        {/* Pagination */}
-        <div className="p-4 border-t border-gray-800 flex items-center justify-between text-xs text-gray-400">
-          <span>Page {page} of {totalPages}</span>
-          <div className="flex space-x-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="p-1.5 rounded-lg bg-surface-800 hover:bg-surface-700 disabled:opacity-40 disabled:cursor-not-allowed border border-gray-700 text-white"
+          <div>
+            <label
+              htmlFor="history-destination"
+              className="block text-[12px] font-medium text-[#526158] mb-1"
             >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className="p-1.5 rounded-lg bg-surface-800 hover:bg-surface-700 disabled:opacity-40 disabled:cursor-not-allowed border border-gray-700 text-white"
+              Destination
+            </label>
+            <select
+              id="history-destination"
+              value={routingFilter}
+              onChange={(e) => {
+                setRoutingFilter(e.target.value);
+                setPage(1);
+              }}
+              className="w-full min-h-[44px] px-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
             >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+              <option value="">All destinations</option>
+              <option value="Organic">Organic</option>
+              <option value="Recyclable">Recyclable</option>
+              <option value="Residual">Residual</option>
+              <option value="Unknown / Manual Review">Needs review</option>
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="history-status"
+              className="block text-[12px] font-medium text-[#526158] mb-1"
+            >
+              Confidence status
+            </label>
+            <select
+              id="history-status"
+              value={certaintyFilter}
+              onChange={(e) => {
+                setCertaintyFilter(
+                  e.target.value as 'all' | 'confident' | 'uncertain'
+                );
+                setPage(1);
+              }}
+              className="w-full min-h-[44px] px-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+            >
+              <option value="all">All items</option>
+              <option value="confident">Confident only</option>
+              <option value="uncertain">Needs review</option>
+            </select>
           </div>
         </div>
-      </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[13px] text-[#526158]">
+          <span className="tabular-nums">
+            {historyData?.unavailable
+              ? 'Database offline'
+              : `${historyData?.total ?? 0} total recorded item${
+                  historyData?.total === 1 ? '' : 's'
+                }`}
+          </span>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="font-medium text-[#245C3B] hover:text-[#19452B] underline underline-offset-4"
+            >
+              Reset all filters
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* Main Content States */}
+      {loading ? (
+        <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-8 text-[14px] text-[#526158]">
+          Loading classification history…
+        </div>
+      ) : historyData?.unavailable ? (
+        <StatusNotice
+          tone="warning"
+          title="History archive unreachable"
+          action={
+            <button
+              type="button"
+              onClick={loadPage}
+              className="px-3.5 min-h-[40px] rounded-[8px] bg-[#FFFFFF] border border-[#EAD4AA] text-[#754909] text-[13px] font-medium hover:bg-[#FDF7EC]"
+            >
+              Retry connection
+            </button>
+          }
+        >
+          Unable to connect to the backend SQLite history endpoint. Saved
+          classifications and CSV export become available once the backend API is
+          running.
+        </StatusNotice>
+      ) : filteredItems.length === 0 ? (
+        <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-8 space-y-3">
+          <p className="text-[16px] font-semibold text-[#18251D]">
+            {hasActiveFilters
+              ? 'No matching history records'
+              : 'No classification records yet'}
+          </p>
+          <p className="text-[14px] text-[#526158]">
+            {hasActiveFilters
+              ? 'Try clearing one or more filters to view older records.'
+              : 'Run a single or batch classification to populate the audit archive.'}
+          </p>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="px-4 min-h-[44px] rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] hover:bg-[#EEF2EB] text-[14px] font-medium text-[#18251D]"
+            >
+              Reset filters
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] overflow-hidden">
+          {/* Desktop Table */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-[#DCE3DA] bg-[#F7F8F4]/70 text-[12px] font-semibold uppercase tracking-[0.04em] text-[#526158]">
+                  <th className="py-3 px-4">Material</th>
+                  <th className="py-3 px-4">Destination</th>
+                  <th className="py-3 px-4">Confidence</th>
+                  <th className="py-3 px-4">Item</th>
+                  <th className="py-3 px-4">Latency</th>
+                  <th className="py-3 px-4">Time</th>
+                  <th className="py-3 px-4 text-right">Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#DCE3DA] text-[14px]">
+                {filteredItems.map((row, idx) => {
+                  const rowId = getRowId(row, idx);
+                  const isExpanded = expandedRowId === rowId;
+                  return (
+                    <React.Fragment key={rowId}>
+                      <tr className={isExpanded ? 'bg-[#EEF2EB]/40' : 'hover:bg-[#F7F8F4]/60'}>
+                        <td className="py-3.5 px-4 font-medium text-[#18251D]">
+                          {row.is_uncertain ? 'Uncertain item' : row.material_label}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <CategoryBadge category={row.routing_category} size="sm" />
+                        </td>
+                        <td className="py-3.5 px-4 tabular-nums font-medium text-[#18251D]">
+                          {(row.confidence * 100).toFixed(1)}%
+                        </td>
+                        <td className="py-3.5 px-4 text-[#526158] max-w-[200px] truncate">
+                          {row.filename || 'Captured frame'}
+                        </td>
+                        <td className="py-3.5 px-4 tabular-nums text-[#526158]">
+                          {(row.latency_ms ?? 0).toFixed(0)} ms
+                        </td>
+                        <td className="py-3.5 px-4 tabular-nums text-[#526158] whitespace-nowrap">
+                          {formatDate(row.timestamp)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedRowId((prev) =>
+                                prev === rowId ? null : rowId
+                              )
+                            }
+                            aria-expanded={isExpanded}
+                            aria-label={`Inspect details for ${row.filename || row.material_label}`}
+                            className="inline-flex items-center gap-1 px-2.5 min-h-[36px] rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] hover:bg-[#EEF2EB] text-[13px] font-medium text-[#18251D]"
+                          >
+                            <span>{isExpanded ? 'Hide' : 'Inspect'}</span>
+                            <ChevronDown
+                              size={14}
+                              className={`transition-transform ${
+                                isExpanded ? 'rotate-180' : ''
+                              }`}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={7} className="p-4 bg-[#FFFFFF]">
+                            {renderExpandedDetails(row)}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card List */}
+          <div className="md:hidden divide-y divide-[#DCE3DA]">
+            {filteredItems.map((row, idx) => {
+              const rowId = getRowId(row, idx);
+              const isExpanded = expandedRowId === rowId;
+              return (
+                <div key={rowId} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-semibold text-[#18251D]">
+                        {row.is_uncertain ? 'Uncertain item' : row.material_label}
+                      </p>
+                      <p className="text-[12px] text-[#526158] truncate mt-0.5">
+                        {row.filename || 'Captured frame'} · {formatDate(row.timestamp)}
+                      </p>
+                    </div>
+                    <span className="text-[15px] font-semibold text-[#18251D] tabular-nums shrink-0">
+                      {(row.confidence * 100).toFixed(1)}%
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <CategoryBadge category={row.routing_category} size="sm" />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedRowId((prev) => (prev === rowId ? null : rowId))
+                      }
+                      aria-expanded={isExpanded}
+                      className="inline-flex items-center gap-1 px-3 min-h-[40px] rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] hover:bg-[#EEF2EB] text-[13px] font-medium text-[#18251D]"
+                    >
+                      <span>{isExpanded ? 'Hide details' : 'Inspect'}</span>
+                      <ChevronDown
+                        size={14}
+                        className={`transition-transform ${
+                          isExpanded ? 'rotate-180' : ''
+                        }`}
+                        aria-hidden="true"
+                      />
+                    </button>
+                  </div>
+
+                  {isExpanded && renderExpandedDetails(row)}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Pagination */}
+          {(historyData?.total_pages ?? 1) > 1 && (
+            <div className="px-4 py-3.5 border-t border-[#DCE3DA] bg-[#F7F8F4]/50 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="inline-flex items-center gap-1.5 px-3.5 min-h-[44px] rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] hover:bg-[#EEF2EB] disabled:opacity-50 text-[13px] font-medium text-[#18251D]"
+              >
+                <ChevronLeft size={15} aria-hidden="true" />
+                <span>Previous</span>
+              </button>
+
+              <span className="text-[13px] text-[#526158] tabular-nums">
+                Page {page} of {historyData?.total_pages ?? 1}
+              </span>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setPage((p) =>
+                    Math.min(historyData?.total_pages ?? 1, p + 1)
+                  )
+                }
+                disabled={page >= (historyData?.total_pages ?? 1)}
+                className="inline-flex items-center gap-1.5 px-3.5 min-h-[44px] rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] hover:bg-[#EEF2EB] disabled:opacity-50 text-[13px] font-medium text-[#18251D]"
+              >
+                <span>Next</span>
+                <ChevronRight size={15} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

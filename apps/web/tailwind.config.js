@@ -7,30 +7,38 @@ export default {
   theme: {
     extend: {
       colors: {
-        wasto: {
-          50: '#eefdf5',
-          100: '#d6fae6',
-          200: '#b0f4d0',
-          300: '#77eab3',
-          400: '#38d790',
-          500: '#17DE8F', // Wasto Brand Accent
-          600: '#0ca86a',
-          700: '#0c8455',
-          800: '#0e6845',
-          900: '#0e563a',
-          950: '#053020',
-        },
+        canvas: '#F7F8F4',
         surface: {
-          900: '#0B0F17',
-          800: '#111827',
-          700: '#1F2937',
-          600: '#374151',
-        }
+          DEFAULT: '#FFFFFF',
+          subtle: '#EEF2EB',
+        },
+        ink: {
+          DEFAULT: '#18251D',
+          secondary: '#526158',
+        },
+        line: '#DCE3DA',
+        brand: {
+          DEFAULT: '#245C3B',
+          hover: '#19452B',
+          soft: '#E5EFE4',
+          lime: '#D9E8AA',
+        },
+        status: {
+          warning: '#8A570B',
+          'warning-bg': '#FDF7EC',
+          'warning-border': '#EAD4AA',
+          error: '#B33D35',
+          'error-bg': '#FDF2F1',
+          'error-border': '#EBC5C2',
+          info: '#315E8B',
+          'info-bg': '#EFF5FA',
+          'info-border': '#C7D8EA',
+        },
       },
       fontFamily: {
-        sans: ['Poppins', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
-      }
+        sans: ['Montserrat', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+      },
     },
   },
   plugins: [],

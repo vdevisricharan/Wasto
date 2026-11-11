@@ -15,6 +15,41 @@ export type RoutingCategory =
   | 'Residual'
   | 'Unknown / Manual Review';
 
+export interface HardwareStatus {
+  connected: boolean;
+  armed: boolean;
+  state: string;
+  servo_angle?: number;
+  mode: 'PHYSICAL' | 'SIMULATED';
+  port: string;
+}
+
+export interface HealthResponse {
+  status: string;
+  service: string;
+  version: string;
+  ml_model_ready: boolean;
+  database_connected: boolean;
+  hardware_adapter: HardwareStatus;
+  timestamp?: number;
+}
+
+export interface ModelMetadata {
+  model_name: string;
+  version: string;
+  input_shape: number[];
+  classes: string[];
+  num_classes: number;
+  checksum_sha256: string | null;
+  status: string;
+  error_detail: string | null;
+  routing_policy_version: string;
+  thresholds: {
+    confidence_threshold: number;
+    ambiguity_margin: number;
+  };
+}
+
 export interface PredictionResult {
   prediction_id: string;
   filename: string;
@@ -28,6 +63,7 @@ export interface PredictionResult {
   routing_policy_version: string;
   inference_latency_ms: number;
   timestamp: number;
+  is_demo_fixture?: boolean;
 }
 
 export interface BatchItemResult extends PredictionResult {
@@ -52,6 +88,7 @@ export interface BatchPredictionResult {
   };
   total_latency_ms: number;
   average_latency_ms: number;
+  is_demo_fixture?: boolean;
 }
 
 export interface DashboardSummary {
@@ -68,27 +105,55 @@ export interface DashboardSummary {
     timestamp: number;
     source: 'PHYSICAL' | 'SIMULATED';
   } | null;
-  hardware_status: {
-    connected: boolean;
-    armed: boolean;
-    state: string;
-    servo_angle?: number;
-    mode: 'PHYSICAL' | 'SIMULATED';
-    port: string;
-  };
+  hardware_status: HardwareStatus;
   timestamp: number;
+  is_demo_fixture?: boolean;
 }
+
+export interface HistoryItem {
+  id: string;
+  prediction_id?: string;
+  timestamp: number;
+  filename: string;
+  material_label: MaterialClass | string;
+  confidence: number;
+  routing_category: RoutingCategory;
+  is_uncertain: boolean;
+  uncertainty_reason: string | null;
+  scores: Record<string, number>;
+  latency_ms: number;
+  source_mode: string;
+}
+
+export interface HistoryResponse {
+  items: HistoryItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  unavailable?: boolean;
+}
+
+export type BatchStatus =
+  | 'CREATED'
+  | 'PICKUP_SCHEDULED'
+  | 'COLLECTED'
+  | 'AT_FACILITY'
+  | 'SORTED'
+  | 'PROCESSED'
+  | 'IN_TRANSIT';
 
 export interface WasteBatch {
   id: string;
   source_organization: string;
-  status: 'CREATED' | 'PICKUP_SCHEDULED' | 'COLLECTED' | 'AT_FACILITY' | 'SORTED' | 'PROCESSED';
+  status: BatchStatus | string;
   estimated_kg: number | null;
   material_category: string;
   notes: string | null;
   created_at: number;
   updated_at: number;
   event_count?: number;
+  is_demo_fixture?: boolean;
 }
 
 export interface TrackingEvent {

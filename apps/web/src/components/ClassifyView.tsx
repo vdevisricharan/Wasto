@@ -1,596 +1,1233 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import {
-  Upload,
-  Layers,
-  CheckCircle2,
-  AlertTriangle,
-  RotateCcw,
-  Sliders,
-  FileText,
-  Download,
   AlertCircle,
-  HelpCircle,
-  Sparkles,
+  ChevronDown,
+  Cpu,
+  Download,
+  FileImage,
+  FolderOpen,
+  Layers,
+  Loader2,
+  RotateCcw,
+  Trash2,
+  Upload,
 } from 'lucide-react';
-import { predictSingleImage, predictBatchImages, actuateFlap } from '../api/client';
-import { PredictionResult, BatchPredictionResult, RoutingCategory } from '../types';
+import {
+  BatchPredictionResult,
+  PredictionResult,
+  RoutingCategory,
+} from '../types';
+import {
+  actuateFlap,
+  predictBatchImages,
+  predictSingleImage,
+} from '../api/client';
+import {
+  OperationalModeInfo,
+  ROUTING_CATEGORY_META,
+} from '../theme/tokens';
+import { CategoryBadge } from './ui/CategoryBadge';
+import { PageHeader } from './ui/PageHeader';
+import { StatusNotice } from './ui/StatusNotice';
 
-export const ClassifyView: React.FC = () => {
+interface ClassifyViewProps {
+  modeInfo: OperationalModeInfo;
+  onClassificationComplete: () => void;
+}
+
+interface SamplePreset {
+  id: string;
+  label: string;
+  hint: string;
+  src: string;
+  filename: string;
+}
+
+const SAMPLE_PRESETS: SamplePreset[] = [
+  {
+    id: 'organic',
+    label: 'Organic scraps',
+    hint: 'Compostable sample',
+    src: '/samples/organic-scraps.jpg',
+    filename: 'sample-organic-scraps.jpg',
+  },
+  {
+    id: 'cardboard',
+    label: 'Cardboard box',
+    hint: 'Fiber packaging',
+    src: '/samples/cardboard-box.jpg',
+    filename: 'sample-cardboard-box.jpg',
+  },
+  {
+    id: 'glass',
+    label: 'Glass bottle',
+    hint: 'Container glass',
+    src: '/samples/glass-bottle.jpg',
+    filename: 'sample-glass-bottle.jpg',
+  },
+  {
+    id: 'plastic',
+    label: 'Plastic bottle',
+    hint: 'Low-contrast edge case',
+    src: '/samples/plastic-bottle.jpg',
+    filename: 'sample-plastic-bottle.jpg',
+  },
+];
+
+const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
+const MAX_BATCH_FILES = 50;
+
+const ROUTING_TO_BIN: Record<RoutingCategory, string> = {
+  Organic: 'ORGANIC',
+  Recyclable: 'RECYCLABLE',
+  Residual: 'RESIDUAL',
+  'Unknown / Manual Review': 'NONE',
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getFileKey(file: File | null): string | null {
+  if (!file) return null;
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function validateImageFile(file: File): string | null {
+  const nameLower = file.name.toLowerCase();
+  const extOk =
+    nameLower.endsWith('.jpg') ||
+    nameLower.endsWith('.jpeg') ||
+    nameLower.endsWith('.png') ||
+    nameLower.endsWith('.webp');
+  if (file.type && !ACCEPTED_TYPES.has(file.type) && !extOk) {
+    return `${file.name} is not a supported JPEG, PNG, or WEBP image.`;
+  }
+  if (!file.type && !extOk) {
+    return `${file.name} is not a supported JPEG, PNG, or WEBP image.`;
+  }
+  if (file.size === 0) {
+    return `${file.name} appears to be empty.`;
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    return `${file.name} exceeds the 15 MB upload limit.`;
+  }
+  return null;
+}
+
+export const ClassifyView: React.FC<ClassifyViewProps> = ({
+  modeInfo,
+  onClassificationComplete,
+}) => {
   const [activeTab, setActiveTab] = useState<'single' | 'batch'>('single');
 
-  // Single Image State
+  // Single image state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [singleResult, setSingleResult] = useState<PredictionResult | null>(null);
+  const [activeSampleId, setActiveSampleId] = useState<string | null>(null);
+  const [sampleLoadingId, setSampleLoadingId] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+
+  const [singleLoading, setSingleLoading] = useState(false);
   const [singleError, setSingleError] = useState<string | null>(null);
-  const [actuationState, setActuationState] = useState<{ status: string; message?: string } | null>(null);
-  const [isActuating, setIsActuating] = useState(false);
+  const [prediction, setPrediction] = useState<PredictionResult | null>(null);
+  const [predictionFileKey, setPredictionFileKey] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Batch State
-  const [batchFiles, setBatchFiles] = useState<File[]>([]);
-  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
-  const [batchResult, setBatchResult] = useState<BatchPredictionResult | null>(null);
+  const [actuating, setActuating] = useState(false);
+  const [actuationMessage, setActuationMessage] = useState<{
+    tone: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
+  // Batch upload state
+  const [batchFiles, setBatchFiles] = useState<
+    Array<{ file: File; previewUrl: string }>
+  >([]);
+  const [batchDragActive, setBatchDragActive] = useState(false);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchSamplesLoading, setBatchSamplesLoading] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchResult, setBatchResult] = useState<BatchPredictionResult | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const singleInputRef = useRef<HTMLInputElement>(null);
   const batchInputRef = useRef<HTMLInputElement>(null);
+  const resultHeadingRef = useRef<HTMLDivElement>(null);
+  const batchUrlsRef = useRef<string[]>([]);
 
-  // --- Handlers: Single Image ---
+  const singlePanelId = useId();
+  const batchPanelId = useId();
+  const singleTabId = useId();
+  const batchTabId = useId();
 
-  const handleFileSelect = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      setSingleError('Please select a valid image file (JPEG, PNG, WEBP).');
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  useEffect(() => {
+    batchUrlsRef.current = batchFiles.map((b) => b.previewUrl);
+  }, [batchFiles]);
+
+  useEffect(() => {
+    return () => {
+      batchUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, []);
+
+  const currentFileKey = getFileKey(selectedFile);
+  const isResultStale =
+    Boolean(prediction) &&
+    Boolean(selectedFile) &&
+    predictionFileKey !== currentFileKey;
+
+  const setNewSingleFile = (file: File, sampleId: string | null = null) => {
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setSingleError(validationError);
       return;
     }
-    if (file.size > 15 * 1024 * 1024) {
-      setSingleError('File exceeds 15MB size limit.');
-      return;
-    }
 
-    setSingleError(null);
-    setSingleResult(null);
-    setActuationState(null);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    const nextUrl = URL.createObjectURL(file);
     setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    setPreviewUrl(nextUrl);
+    setActiveSampleId(sampleId);
+    setSingleError(null);
+    setActuationMessage(null);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelect(e.dataTransfer.files[0]);
+  const handleClearSingleFile = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setActiveSampleId(null);
+    setPrediction(null);
+    setPredictionFileKey(null);
+    setSingleError(null);
+    setActuationMessage(null);
+    setDetailsOpen(false);
+    if (singleInputRef.current) singleInputRef.current.value = '';
+  };
+
+  const handleChooseSample = async (preset: SamplePreset) => {
+    setSampleLoadingId(preset.id);
+    setSingleError(null);
+    try {
+      const response = await fetch(preset.src);
+      if (!response.ok) {
+        throw new Error(`Could not load sample image (${response.status})`);
+      }
+      const blob = await response.blob();
+      const file = new File([blob], preset.filename, {
+        type: blob.type || 'image/jpeg',
+      });
+      setNewSingleFile(file, preset.id);
+    } catch (err) {
+      setSingleError(
+        err instanceof Error ? err.message : 'Unable to load sample image.'
+      );
+    } finally {
+      setSampleLoadingId(null);
     }
   };
 
-  const handleRunInference = async () => {
-    if (!selectedFile) return;
-    setIsProcessing(true);
+  const scrollAndFocusResult = () => {
+    const el = resultHeadingRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    const rect = el.getBoundingClientRect();
+    const outOfView = rect.top < 64 || rect.top > window.innerHeight * 0.72;
+    if (outOfView) {
+      const prefersReducedMotion = window.matchMedia(
+        '(prefers-reduced-motion: reduce)'
+      ).matches;
+      el.scrollIntoView({
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        block: 'start',
+      });
+    }
+  };
+
+  const handleRunSingle = async () => {
+    if (!selectedFile || singleLoading) return;
+    const submittedKey = getFileKey(selectedFile);
+    setSingleLoading(true);
     setSingleError(null);
-    setActuationState(null);
+    setActuationMessage(null);
 
     try {
       const res = await predictSingleImage(selectedFile);
-      setSingleResult(res);
-    } catch (err: any) {
-      setSingleError(err.message || 'Inference failed. Check API health.');
+      setPrediction(res);
+      setPredictionFileKey(submittedKey);
+      onClassificationComplete();
+      window.setTimeout(scrollAndFocusResult, 40);
+    } catch (err) {
+      setSingleError(
+        err instanceof Error
+          ? err.message
+          : 'Classification failed. Please verify the image and try again.'
+      );
     } finally {
-      setIsProcessing(false);
+      setSingleLoading(false);
     }
   };
 
-  const handleSampleSelect = async (sampleType: 'glass' | 'plastic' | 'paper' | 'organic') => {
-    // Generate synthetic canvas sample with recognizable color/texture
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  const handleHardwareSort = async () => {
+    if (!prediction || prediction.is_uncertain || !modeInfo.apiReachable) return;
+    const targetBin = ROUTING_TO_BIN[prediction.routing_category];
+    if (!targetBin || targetBin === 'NONE') return;
 
-    if (sampleType === 'glass') {
-      ctx.fillStyle = '#60a5fa'; // Blue tint
-      ctx.fillRect(0, 0, 256, 256);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(80, 40, 96, 176); // Bottle shape
-    } else if (sampleType === 'plastic') {
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillRect(0, 0, 256, 256);
-      ctx.fillStyle = '#0284c7';
-      ctx.fillRect(60, 50, 136, 156);
-    } else if (sampleType === 'paper') {
-      ctx.fillStyle = '#d1d5db';
-      ctx.fillRect(0, 0, 256, 256);
-      ctx.fillStyle = '#9ca3af';
-      ctx.fillRect(40, 40, 176, 176);
-    } else {
-      ctx.fillStyle = '#10b981'; // Organic green
-      ctx.fillRect(0, 0, 256, 256);
-      ctx.fillStyle = '#047857';
-      ctx.arc(128, 128, 70, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const file = new File([blob], `sample_${sampleType}.jpg`, { type: 'image/jpeg' });
-        handleFileSelect(file);
-      }
-    }, 'image/jpeg');
-  };
-
-  const handleActuateSort = async () => {
-    if (!singleResult) return;
-    setIsActuating(true);
-    setActuationState(null);
-
-    let bin = 'NONE';
-    if (singleResult.routing_category === 'Organic') bin = 'ORGANIC';
-    else if (singleResult.routing_category === 'Recyclable') bin = 'RECYCLABLE';
-    else if (singleResult.routing_category === 'Residual') bin = 'RESIDUAL';
-
+    setActuating(true);
+    setActuationMessage(null);
     try {
-      const res = await actuateFlap(bin, 1200, singleResult.prediction_id);
-      setActuationState({ status: 'SUCCESS', message: `Flap actuated to ${bin} chute (${res.status})` });
-    } catch (e: any) {
-      setActuationState({ status: 'FAILED', message: e.message || 'Actuation failed' });
+      await actuateFlap(targetBin, 1200, prediction.prediction_id);
+      setActuationMessage({
+        tone: 'success',
+        text: `Sent ${ROUTING_CATEGORY_META[prediction.routing_category].label} chute command (${ROUTING_CATEGORY_META[prediction.routing_category].servoAngle}).`,
+      });
+      onClassificationComplete();
+    } catch (err) {
+      setActuationMessage({
+        tone: 'error',
+        text: err instanceof Error ? err.message : 'Unable to send chute command.',
+      });
     } finally {
-      setIsActuating(false);
+      setActuating(false);
     }
   };
 
-  // --- Handlers: Batch Processing ---
+  const addBatchFiles = (incoming: File[]) => {
+    const errors: string[] = [];
+    const nextEntries: Array<{ file: File; previewUrl: string }> = [];
 
-  const handleBatchFileSelect = (files: FileList | File[]) => {
-    const valid = Array.from(files).filter(f => f.type.startsWith('image/')).slice(0, 50);
-    setBatchFiles(valid);
+    for (const file of incoming) {
+      if (batchFiles.length + nextEntries.length >= MAX_BATCH_FILES) {
+        errors.push(`Maximum batch size is ${MAX_BATCH_FILES} images.`);
+        break;
+      }
+      const err = validateImageFile(file);
+      if (err) {
+        errors.push(err);
+      } else {
+        nextEntries.push({
+          file,
+          previewUrl: URL.createObjectURL(file),
+        });
+      }
+    }
+
+    if (nextEntries.length > 0) {
+      setBatchFiles((prev) => [...prev, ...nextEntries]);
+      setBatchResult(null);
+    }
+    setBatchError(errors.length > 0 ? errors.join(' ') : null);
+  };
+
+  const handleRemoveBatchIndex = (index: number) => {
+    setBatchFiles((prev) => {
+      const removed = prev[index];
+      if (removed) URL.revokeObjectURL(removed.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+    setBatchResult(null);
+  };
+
+  const handleClearBatch = () => {
+    batchFiles.forEach((b) => URL.revokeObjectURL(b.previewUrl));
+    setBatchFiles([]);
     setBatchResult(null);
     setBatchError(null);
+    if (batchInputRef.current) batchInputRef.current.value = '';
+  };
+
+  const handleLoadSampleBatch = async () => {
+    setBatchSamplesLoading(true);
+    setBatchError(null);
+    try {
+      const loaded = await Promise.all(
+        SAMPLE_PRESETS.map(async (preset) => {
+          const res = await fetch(preset.src);
+          if (!res.ok) throw new Error(`Failed to fetch ${preset.label}`);
+          const blob = await res.blob();
+          return new File([blob], preset.filename, {
+            type: blob.type || 'image/jpeg',
+          });
+        })
+      );
+      addBatchFiles(loaded);
+    } catch (err) {
+      setBatchError(
+        err instanceof Error ? err.message : 'Unable to load sample set.'
+      );
+    } finally {
+      setBatchSamplesLoading(false);
+    }
   };
 
   const handleRunBatch = async () => {
-    if (batchFiles.length === 0) return;
-    setIsBatchProcessing(true);
+    if (batchFiles.length === 0 || batchLoading) return;
+    setBatchLoading(true);
     setBatchError(null);
     try {
-      const res = await predictBatchImages(batchFiles);
+      const res = await predictBatchImages(batchFiles.map((b) => b.file));
       setBatchResult(res);
-    } catch (e: any) {
-      setBatchError(e.message || 'Batch classification error.');
+      onClassificationComplete();
+    } catch (err) {
+      setBatchError(
+        err instanceof Error ? err.message : 'Batch classification failed.'
+      );
     } finally {
-      setIsBatchProcessing(false);
+      setBatchLoading(false);
     }
   };
 
-  const exportBatchCsv = () => {
-    if (!batchResult) return;
-    const rows = [
-      ['Filename', 'Status', 'Material Label', 'Confidence', 'Routing Category', 'Is Uncertain', 'Uncertainty Reason'],
-      ...batchResult.items.map(item => [
-        item.filename,
-        'SUCCESS',
-        item.material_label,
+  const handleExportBatchCsv = () => {
+    if (!batchResult || batchResult.items.length === 0) return;
+    const header = [
+      'filename',
+      'material_label',
+      'routing_category',
+      'confidence',
+      'is_uncertain',
+      'latency_ms',
+    ].join(',');
+    const rows = batchResult.items.map((item) =>
+      [
+        `"${(item.filename || '').replace(/"/g, '""')}"`,
+        `"${item.material_label}"`,
+        `"${item.routing_category}"`,
         item.confidence.toFixed(4),
-        item.routing_category,
-        item.is_uncertain ? 'YES' : 'NO',
-        item.uncertainty_reason || '',
-      ]),
-      ...batchResult.failures.map(fail => [
-        fail.filename,
-        'FAILED',
-        '',
-        '',
-        '',
-        '',
-        fail.error,
-      ]),
-    ];
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
-    const encodedUri = encodeURI(csvContent);
+        item.is_uncertain ? 'true' : 'false',
+        item.inference_latency_ms.toFixed(2),
+      ].join(',')
+    );
+    const blob = new Blob([[header, ...rows].join('\n')], {
+      type: 'text/csv;charset=utf-8;',
+    });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `wasto_batch_${Date.now()}.csv`);
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `wasto-batch-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
-    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
-  // Routing category badge helper
-  const renderRoutingBadge = (cat: RoutingCategory) => {
-    switch (cat) {
-      case 'Organic':
-        return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Chute 1: Organic (Compost)</span>;
-      case 'Recyclable':
-        return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30">Chute 2: Recyclable</span>;
-      case 'Residual':
-        return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">Chute 3: Residual Waste</span>;
-      default:
-        return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30">Manual Review Required</span>;
+  const sortedScores = prediction
+    ? Object.entries(prediction.scores || {}).sort((a, b) => b[1] - a[1])
+    : [];
+
+  const handleTabKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      event.preventDefault();
+      setActiveTab((prev) => (prev === 'single' ? 'batch' : 'single'));
     }
   };
+
+  const canSendToSorter =
+    Boolean(prediction) &&
+    !prediction?.is_uncertain &&
+    !isResultStale &&
+    modeInfo.apiReachable &&
+    modeInfo.hwArmed;
+
+  const sorterHelperText = !prediction
+    ? ''
+    : prediction.is_uncertain
+      ? 'Sort command is locked while item requires manual review.'
+      : isResultStale
+        ? 'Run Classify image on the current photo before sending a chute command.'
+        : !modeInfo.apiReachable
+          ? 'Sorter control requires an active backend connection.'
+          : !modeInfo.hwArmed
+            ? 'Sorter is disarmed. Arm hardware in Live monitor before actuating.'
+            : modeInfo.isSimulatedHw
+              ? 'Software simulator will log this chute angle.'
+              : 'Hardware is armed and ready.';
 
   return (
-    <div className="space-y-6 animate-fade-slide">
-      {/* Tab Switcher */}
-      <div className="flex border-b border-gray-800 space-x-6">
+    <div className="space-y-6">
+      <PageHeader
+        title="Classify waste."
+        description="Add a photo to identify the material and review its sorting destination."
+        modeInfo={modeInfo}
+      />
+
+      {/* Mode Tabs */}
+      <div
+        role="tablist"
+        aria-label="Classification mode"
+        onKeyDown={handleTabKeyDown}
+        className="inline-flex p-1 rounded-[10px] bg-[#EEF2EB] border border-[#DCE3DA] gap-1"
+      >
         <button
+          id={singleTabId}
+          role="tab"
+          type="button"
+          aria-selected={activeTab === 'single'}
+          aria-controls={singlePanelId}
+          tabIndex={activeTab === 'single' ? 0 : -1}
           onClick={() => setActiveTab('single')}
-          className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center space-x-2 ${
+          className={`inline-flex items-center gap-2 px-4 min-h-[40px] rounded-[8px] text-[14px] font-medium transition-colors ${
             activeTab === 'single'
-              ? 'border-wasto-500 text-wasto-400'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
+              ? 'bg-[#FFFFFF] text-[#18251D] shadow-floating border border-[#DCE3DA]'
+              : 'text-[#526158] hover:text-[#18251D] border border-transparent'
           }`}
         >
-          <Layers className="w-4 h-4" />
-          <span>Single Item Classification</span>
+          <FileImage size={16} strokeWidth={1.85} aria-hidden="true" />
+          <span>Single image</span>
         </button>
+
         <button
+          id={batchTabId}
+          role="tab"
+          type="button"
+          aria-selected={activeTab === 'batch'}
+          aria-controls={batchPanelId}
+          tabIndex={activeTab === 'batch' ? 0 : -1}
           onClick={() => setActiveTab('batch')}
-          className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center space-x-2 ${
+          className={`inline-flex items-center gap-2 px-4 min-h-[40px] rounded-[8px] text-[14px] font-medium transition-colors ${
             activeTab === 'batch'
-              ? 'border-wasto-500 text-wasto-400'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
+              ? 'bg-[#FFFFFF] text-[#18251D] shadow-floating border border-[#DCE3DA]'
+              : 'text-[#526158] hover:text-[#18251D] border border-transparent'
           }`}
         >
-          <FileText className="w-4 h-4" />
-          <span>Bulk & Batch Processing</span>
+          <Layers size={16} strokeWidth={1.85} aria-hidden="true" />
+          <span>Batch upload</span>
         </button>
       </div>
 
-      {activeTab === 'single' ? (
-        /* SINGLE IMAGE WORKFLOW */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column: Upload & Sample Pickers (5 cols) */}
-          <div className="lg:col-span-5 space-y-4">
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className="glass-card border-2 border-dashed border-gray-700 hover:border-wasto-500/50 rounded-2xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[260px] relative overflow-hidden group"
-            >
+      {/* SINGLE IMAGE WORKSPACE */}
+      {activeTab === 'single' && (
+        <div
+          id={singlePanelId}
+          role="tabpanel"
+          aria-labelledby={singleTabId}
+          className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start"
+        >
+          {/* Left: Upload & Samples (wider column 7/12) */}
+          <div className="lg:col-span-7 space-y-5">
+            <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-5">
               <input
-                ref={fileInputRef}
+                ref={singleInputRef}
                 type="file"
-                accept="image/*"
-                onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-                className="hidden"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                aria-label="Choose image to classify"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setNewSingleFile(file, null);
+                }}
               />
 
-              {previewUrl ? (
-                <div className="space-y-3 w-full">
-                  <img
-                    src={previewUrl}
-                    alt={selectedFile?.name ? `Uploaded waste classification sample: ${selectedFile.name}` : "Uploaded waste classification sample preview"}
-                    className="max-h-52 mx-auto rounded-xl object-contain shadow-lg"
-                  />
-                  <p className="text-xs text-gray-400 font-mono truncate">{selectedFile?.name}</p>
+              {!selectedFile ? (
+                <div
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) setNewSingleFile(file, null);
+                  }}
+                  className={`border border-dashed rounded-[16px] px-6 py-10 sm:py-12 text-center transition-colors ${
+                    dragActive
+                      ? 'border-[#245C3B] bg-[#E5EFE4]/40'
+                      : 'border-[#DCE3DA] bg-[#F7F8F4]/55'
+                  }`}
+                >
+                  <div className="w-11 h-11 rounded-[10px] bg-[#FFFFFF] border border-[#DCE3DA] text-[#245C3B] flex items-center justify-center mx-auto mb-3.5">
+                    <Upload size={20} strokeWidth={1.85} aria-hidden="true" />
+                  </div>
+                  <p className="text-[16px] font-semibold text-[#18251D]">
+                    Drop a waste photo here
+                  </p>
+                  <p className="text-[14px] text-[#526158] mt-1">
+                    JPEG, PNG, or WEBP · up to 15 MB per image
+                  </p>
+                  <div className="mt-5">
+                    <button
+                      type="button"
+                      onClick={() => singleInputRef.current?.click()}
+                      className="inline-flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#18251D] text-[14px] font-medium transition-colors"
+                    >
+                      <FolderOpen size={16} strokeWidth={1.85} aria-hidden="true" />
+                      <span>Choose image</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <div className="space-y-3 text-gray-400 group-hover:text-gray-200 transition-colors">
-                  <div className="w-12 h-12 rounded-2xl bg-surface-800 border border-gray-700 flex items-center justify-center mx-auto text-wasto-400">
-                    <Upload className="w-6 h-6" />
+                <div className="space-y-4">
+                  <div className="rounded-[16px] border border-[#DCE3DA] bg-[#F7F8F4] overflow-hidden p-3 flex items-center justify-center">
+                    {previewUrl && (
+                      <img
+                        src={previewUrl}
+                        alt={`Selected waste item: ${selectedFile.name}`}
+                        className="max-h-[340px] w-full object-contain rounded-[8px]"
+                      />
+                    )}
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">Click or drag image to classify</p>
-                    <p className="text-xs text-gray-500 mt-1">JPEG, PNG, WEBP (Max 15MB)</p>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-medium text-[#18251D] truncate">
+                        {selectedFile.name}
+                      </p>
+                      <p className="text-[12px] text-[#526158] tabular-nums">
+                        {formatBytes(selectedFile.size)}
+                        {activeSampleId ? ' · Sample dataset photo' : ''}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => singleInputRef.current?.click()}
+                        className="px-3.5 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#18251D] text-[13px] font-medium transition-colors"
+                      >
+                        Change
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearSingleFile}
+                        className="inline-flex items-center gap-1.5 px-3.5 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#FDF2F1] hover:border-[#EBC5C2] text-[#B33D35] text-[13px] font-medium transition-colors"
+                      >
+                        <Trash2 size={14} strokeWidth={1.85} aria-hidden="true" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* Quick Test Samples */}
-            <div className="glass-card p-4 rounded-xl border border-gray-800 space-y-2">
-              <span className="text-xs font-semibold text-gray-400 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-wasto-400" />
-                Quick Test Samples:
-              </span>
-              <div className="grid grid-cols-2 gap-2">
+              {/* Sample Thumbnails */}
+              <div className="pt-4 border-t border-[#DCE3DA]">
+                <div className="flex items-baseline justify-between gap-2 mb-3">
+                  <p className="text-[14px] font-medium text-[#18251D]">
+                    Try a sample photo
+                  </p>
+                  <p className="text-[12px] text-[#526158]">
+                    Real evaluation dataset images
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {SAMPLE_PRESETS.map((preset) => {
+                    const isSelected = activeSampleId === preset.id;
+                    const isBusy = sampleLoadingId === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleChooseSample(preset)}
+                        disabled={sampleLoadingId !== null}
+                        aria-pressed={isSelected}
+                        className={`text-left p-2 rounded-[8px] border transition-colors min-h-[44px] flex flex-col gap-2 ${
+                          isSelected
+                            ? 'bg-[#E5EFE4] border-[#245C3B] text-[#19452B]'
+                            : 'bg-[#FFFFFF] border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#18251D]'
+                        }`}
+                      >
+                        <div className="w-full h-20 rounded-[6px] overflow-hidden bg-[#EEF2EB] border border-[#DCE3DA]/60">
+                          <img
+                            src={preset.src}
+                            alt={preset.label}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="px-0.5">
+                          <p className="text-[13px] font-medium leading-tight">
+                            {isBusy ? 'Loading…' : preset.label}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Primary Action */}
+              <div className="pt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <button
                   type="button"
-                  onClick={() => handleSampleSelect('glass')}
-                  className="px-2.5 py-1.5 text-xs rounded-lg bg-surface-800 hover:bg-surface-700 text-gray-300 border border-gray-700 text-left truncate"
+                  onClick={handleRunSingle}
+                  disabled={!selectedFile || singleLoading}
+                  className="w-full sm:w-auto shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-2 px-6 min-h-[48px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] disabled:bg-[#DCE3DA] disabled:text-[#526158] text-white text-[15px] font-medium transition-colors"
                 >
-                  Glass Bottle
+                  {singleLoading && (
+                    <Loader2
+                      size={17}
+                      strokeWidth={2}
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span>
+                    {singleLoading ? 'Analyzing image…' : 'Classify image'}
+                  </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleSampleSelect('plastic')}
-                  className="px-2.5 py-1.5 text-xs rounded-lg bg-surface-800 hover:bg-surface-700 text-gray-300 border border-gray-700 text-left truncate"
-                >
-                  Plastic Container
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSampleSelect('paper')}
-                  className="px-2.5 py-1.5 text-xs rounded-lg bg-surface-800 hover:bg-surface-700 text-gray-300 border border-gray-700 text-left truncate"
-                >
-                  Cardboard Box
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSampleSelect('organic')}
-                  className="px-2.5 py-1.5 text-xs rounded-lg bg-surface-800 hover:bg-surface-700 text-gray-300 border border-gray-700 text-left truncate"
-                >
-                  Organic Leaf
-                </button>
+
+                <span className="text-[13px] text-[#526158]">
+                  {!selectedFile
+                    ? 'Select or upload a photo to enable classification.'
+                    : isResultStale
+                      ? 'New image ready to classify.'
+                      : 'Ready to run material identification.'}
+                </span>
               </div>
             </div>
-
-            {/* Run Button */}
-            <button
-              onClick={handleRunInference}
-              disabled={!selectedFile || isProcessing}
-              className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center space-x-2 ${
-                !selectedFile || isProcessing
-                  ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                  : 'bg-wasto-500 text-surface-900 hover:bg-wasto-400 shadow-lg shadow-wasto-500/20 active:scale-98'
-              }`}
-            >
-              {isProcessing ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-surface-900 border-t-transparent rounded-full animate-spin"></div>
-                  <span>Evaluating MobileNetV3...</span>
-                </>
-              ) : (
-                <>
-                  <Layers className="w-4 h-4" />
-                  <span>Run Waste Inference</span>
-                </>
-              )}
-            </button>
-
-            {singleError && (
-              <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-start space-x-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{singleError}</span>
-              </div>
-            )}
           </div>
 
-          {/* Right Column: Prediction Details & Flap Actuation (7 cols) */}
-          <div className="lg:col-span-7 space-y-4">
-            {singleResult ? (
-              <div className="glass-card rounded-2xl p-6 border border-gray-800 space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-800 pb-4">
-                  <div>
-                    <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                      {singleResult.material_label}
-                    </h2>
-                    <p className="text-xs text-gray-400 font-mono mt-0.5">ID: {singleResult.prediction_id}</p>
-                  </div>
-                  <div>{renderRoutingBadge(singleResult.routing_category)}</div>
-                </div>
-
-                {/* Score & Confidence */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3.5 rounded-xl bg-surface-800/80 border border-gray-700/60 text-xs">
-                  <div>
-                    <span className="text-gray-400">Confidence Score:</span>
-                    <p className="text-lg font-bold text-wasto-400 font-mono">
-                      {(singleResult.confidence * 100).toFixed(1)}%
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Inference Latency:</span>
-                    <p className="text-lg font-bold text-gray-200 font-mono">
-                      {singleResult.inference_latency_ms.toFixed(1)} ms
-                    </p>
-                  </div>
-                  <div className="col-span-2 sm:col-span-1">
-                    <span className="text-gray-400">Abstention Status:</span>
-                    <p className={`text-sm font-semibold ${singleResult.is_uncertain ? 'text-rose-400' : 'text-emerald-400'}`}>
-                      {singleResult.is_uncertain ? 'Uncertain / Flagged' : 'High Confidence'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Uncertainty Alert if flagged */}
-                {singleResult.is_uncertain && (
-                  <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-1">
-                    <div className="font-semibold flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-rose-400" />
-                      <span>Failsafe Abstention Triggered</span>
-                    </div>
-                    <p className="text-rose-400/90">{singleResult.uncertainty_reason}</p>
-                  </div>
+          {/* Right: Classification Result (5/12) */}
+          <div className="lg:col-span-5">
+            <div
+              ref={resultHeadingRef}
+              tabIndex={-1}
+              aria-live="polite"
+              className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-4 focus:outline-none"
+            >
+              <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#DCE3DA]">
+                <h2 className="text-[20px] font-semibold text-[#18251D]">
+                  Classification result
+                </h2>
+                {singleLoading && (
+                  <span className="text-[12px] font-medium text-[#245C3B] inline-flex items-center gap-1.5">
+                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                    <span>Updating…</span>
+                  </span>
                 )}
+              </div>
 
-                {/* Disposal Guidance */}
-                <div className="space-y-1.5">
-                  <span className="text-xs font-semibold text-gray-400">Operational Guidance:</span>
-                  <div className="p-3.5 rounded-xl bg-surface-800/50 border border-gray-700 text-xs text-gray-200 leading-relaxed">
-                    {singleResult.disposal_guidance}
-                  </div>
+              {singleError && (
+                <StatusNotice
+                  tone="error"
+                  role="alert"
+                  title="Could not classify image"
+                  stackAction
+                  action={
+                    selectedFile ? (
+                      <button
+                        type="button"
+                        onClick={handleRunSingle}
+                        disabled={singleLoading}
+                        className="inline-flex items-center gap-1.5 px-3 min-h-[40px] rounded-[8px] bg-[#FFFFFF] border border-[#EBC5C2] text-[#962E27] text-[13px] font-medium hover:bg-[#FDF2F1]"
+                      >
+                        <RotateCcw size={14} aria-hidden="true" />
+                        <span>Try again</span>
+                      </button>
+                    ) : undefined
+                  }
+                >
+                  {singleError}
+                </StatusNotice>
+              )}
+
+              {!prediction ? (
+                <div className="py-3 space-y-3">
+                  <p className="text-[15px] font-medium text-[#18251D]">
+                    Waiting for an image classification
+                  </p>
+                  <p className="text-[14px] text-[#526158] leading-[1.55]">
+                    After running classification, this panel reports the detected
+                    material class, its assigned sorting destination, model
+                    confidence, and handling guidance.
+                  </p>
+                  <ul className="pt-2 space-y-2 text-[13px] text-[#526158] border-t border-[#DCE3DA]">
+                    <li>• Predictions under 60% confidence stay held for review.</li>
+                    <li>• Items close between two classes also trigger manual review.</li>
+                    <li>• Non-organic materials are blocked from compost routing.</li>
+                  </ul>
                 </div>
+              ) : (
+                <div className="space-y-4">
+                  {isResultStale && (
+                    <StatusNotice
+                      tone="warning"
+                      stackAction
+                      action={
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPrediction(null);
+                            setPredictionFileKey(null);
+                            setActuationMessage(null);
+                            setDetailsOpen(false);
+                          }}
+                          className="px-3 min-h-[38px] rounded-[8px] bg-[#FFFFFF] border border-[#EAD4AA] text-[#754909] text-[12px] font-medium hover:bg-[#FDF7EC]"
+                        >
+                          Clear result
+                        </button>
+                      }
+                    >
+                      Showing result from the previous image ({prediction.filename}).
+                      Choose <strong>Classify image</strong> to inspect your current photo.
+                    </StatusNotice>
+                  )}
 
-                {/* 9-Class Distribution Bar Chart */}
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center text-xs text-gray-400">
-                    <span className="font-semibold">Full 9-Class Softmax Distribution:</span>
-                    <span className="font-mono text-[10px]">Model Output</span>
+                  {prediction.is_demo_fixture && (
+                    <StatusNotice tone="info">
+                      Deterministic sample result shown because the backend API is
+                      offline.
+                    </StatusNotice>
+                  )}
+
+                  {/* Uncertain Abstention Banner vs Material Identity First */}
+                  {prediction.is_uncertain ? (
+                    <div className="p-4 rounded-[12px] bg-[#FDF7EC] border border-[#EAD4AA] space-y-2">
+                      <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-[#8A570B]">
+                        Manual review needed
+                      </p>
+                      <h3 className="text-[22px] font-semibold text-[#18251D] leading-snug">
+                        We couldn&apos;t confidently identify this item
+                      </h3>
+                      <p className="text-[14px] text-[#526158] leading-[1.5]">
+                        {prediction.uncertainty_reason ||
+                          `Top candidate (${prediction.material_label}) did not clear the safety confidence threshold.`}
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-[#526158]">
+                        Identified material
+                      </p>
+                      <h3 className="text-[26px] font-semibold text-[#18251D] leading-[1.2] mt-1">
+                        {prediction.material_label}
+                      </h3>
+                    </div>
+                  )}
+
+                  {/* Sorting Destination Separated Clearly */}
+                  <div className="pt-3 border-t border-[#DCE3DA] flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-medium text-[#526158]">
+                        Sorting destination
+                      </p>
+                      <div className="mt-1.5">
+                        <CategoryBadge category={prediction.routing_category} />
+                      </div>
+                      <p className="text-[12px] text-[#526158] mt-1">
+                        {ROUTING_CATEGORY_META[prediction.routing_category].chuteLabel}
+                      </p>
+                    </div>
+
+                    <div className="sm:text-right shrink-0">
+                      <p className="text-[12px] font-medium text-[#526158]">
+                        Confidence
+                      </p>
+                      <p className="text-[28px] font-semibold leading-tight text-[#18251D] tabular-nums mt-0.5">
+                        {(prediction.confidence * 100).toFixed(1)}%
+                      </p>
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    {Object.entries(singleResult.scores)
-                      .sort((a, b) => b[1] - a[1])
-                      .map(([cls, score]) => (
-                        <div key={cls} className="space-y-1">
-                          <div className="flex justify-between text-xs">
-                            <span className="text-gray-300 font-medium">{cls}</span>
-                            <span className="font-mono text-gray-400">{(score * 100).toFixed(1)}%</span>
-                          </div>
-                          <div className="w-full bg-surface-800 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${
-                                cls === singleResult.material_label ? 'bg-wasto-500' : 'bg-gray-600'
-                              }`}
-                              style={{ width: `${Math.max(1, score * 100)}%` }}
-                            ></div>
+
+                  {/* Confidence meter */}
+                  <div className="w-full h-2 rounded-full bg-[#EEF2EB] overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, prediction.confidence * 100))}%`,
+                        backgroundColor: prediction.is_uncertain
+                          ? '#8A570B'
+                          : ROUTING_CATEGORY_META[prediction.routing_category].barColor,
+                      }}
+                    />
+                  </div>
+
+                  {/* Guidance */}
+                  <div className="p-3.5 rounded-[8px] bg-[#F7F8F4] border border-[#DCE3DA]">
+                    <p className="text-[12px] font-medium text-[#526158]">
+                      Handling guidance
+                    </p>
+                    <p className="text-[14px] text-[#18251D] leading-[1.5] mt-1">
+                      {prediction.disposal_guidance}
+                    </p>
+                  </div>
+
+                  {/* Secondary Sorter Actuation Action */}
+                  <div className="pt-3 border-t border-[#DCE3DA] space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={handleHardwareSort}
+                        disabled={!canSendToSorter || actuating}
+                        className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] disabled:bg-[#EEF2EB]/60 disabled:text-[#526158] disabled:cursor-not-allowed text-[#18251D] text-[14px] font-medium transition-colors"
+                      >
+                        <Cpu size={16} strokeWidth={1.85} aria-hidden="true" />
+                        <span>
+                          {actuating ? 'Sending sort command…' : 'Send to sorter'}
+                        </span>
+                      </button>
+                      <span className="text-[12px] text-[#526158] leading-[1.4]">
+                        {sorterHelperText}
+                      </span>
+                    </div>
+
+                    {actuationMessage && (
+                      <StatusNotice tone={actuationMessage.tone}>
+                        {actuationMessage.text}
+                      </StatusNotice>
+                    )}
+                  </div>
+
+                  {/* Expandable Prediction Details */}
+                  <div className="pt-2 border-t border-[#DCE3DA]">
+                    <button
+                      type="button"
+                      onClick={() => setDetailsOpen((prev) => !prev)}
+                      aria-expanded={detailsOpen}
+                      className="w-full min-h-[44px] flex items-center justify-between px-3 rounded-[8px] text-[14px] font-medium text-[#18251D] bg-[#F7F8F4] hover:bg-[#EEF2EB] border border-[#DCE3DA] transition-colors"
+                    >
+                      <span>Prediction details</span>
+                      <ChevronDown
+                        size={16}
+                        strokeWidth={1.85}
+                        className={`text-[#526158] transition-transform ${
+                          detailsOpen ? 'rotate-180' : ''
+                        }`}
+                        aria-hidden="true"
+                      />
+                    </button>
+
+                    {detailsOpen && (
+                      <div className="mt-3 p-4 rounded-[8px] bg-[#F7F8F4] border border-[#DCE3DA] space-y-4">
+                        <div className="space-y-2">
+                          <p className="text-[12px] font-semibold text-[#526158]">
+                            Class probability distribution
+                          </p>
+                          <div className="space-y-2">
+                            {sortedScores.map(([cls, score]) => (
+                              <div key={cls} className="space-y-1">
+                                <div className="flex justify-between text-[12px]">
+                                  <span
+                                    className={
+                                      cls === prediction.material_label
+                                        ? 'font-semibold text-[#18251D]'
+                                        : 'text-[#526158]'
+                                    }
+                                  >
+                                    {cls}
+                                  </span>
+                                  <span className="font-medium text-[#18251D] tabular-nums">
+                                    {(score * 100).toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className="w-full h-1.5 rounded-full bg-[#DCE3DA]/70 overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full"
+                                    style={{
+                                      width: `${Math.max(1, score * 100)}%`,
+                                      backgroundColor:
+                                        cls === prediction.material_label
+                                          ? '#245C3B'
+                                          : '#526158',
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      ))}
+
+                        <dl className="pt-3 border-t border-[#DCE3DA] space-y-1.5 text-[12px]">
+                          <div className="flex justify-between gap-2">
+                            <dt className="text-[#526158]">Prediction ID</dt>
+                            <dd className="font-mono text-[#18251D] truncate max-w-[200px]">
+                              {prediction.prediction_id}
+                            </dd>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <dt className="text-[#526158]">Policy version</dt>
+                            <dd className="font-mono text-[#18251D]">
+                              {prediction.routing_policy_version}
+                            </dd>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <dt className="text-[#526158]">Inference time</dt>
+                            <dd className="text-[#18251D] tabular-nums">
+                              {prediction.inference_latency_ms.toFixed(1)} ms
+                            </dd>
+                          </div>
+                        </dl>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                {/* Physical/Simulated Hardware Flap Trigger */}
-                <div className="pt-2 border-t border-gray-800 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <span className="text-xs font-semibold text-white block">Mechanical Sorter Actuation</span>
-                    <p className="text-[11px] text-gray-400">Dispatch serial command to Arduino servo flap</p>
-                  </div>
-                  <button
-                    onClick={handleActuateSort}
-                    disabled={isActuating}
-                    className="px-4 py-2 rounded-xl bg-surface-800 hover:bg-surface-700 border border-gray-700 text-xs font-semibold text-wasto-400 hover:text-wasto-300 transition-all flex items-center space-x-1.5"
-                  >
-                    <Sliders className="w-3.5 h-3.5" />
-                    <span>{isActuating ? 'Actuating Flap...' : 'Trigger Flap Deflection'}</span>
-                  </button>
-                </div>
-
-                {actuationState && (
-                  <div
-                    className={`p-3 rounded-xl text-xs font-mono flex items-center space-x-2 ${
-                      actuationState.status === 'SUCCESS'
-                        ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
-                        : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    <span>{actuationState.message}</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="glass-card rounded-2xl p-12 border border-gray-800 text-center space-y-3 min-h-[350px] flex flex-col items-center justify-center text-gray-500">
-                <Layers className="w-10 h-10 text-gray-600 animate-pulse" />
-                <p className="text-sm font-medium text-gray-400">No image evaluated yet</p>
-                <p className="text-xs text-gray-500 max-w-sm">
-                  Upload an image on the left or select a sample to observe real MobileNetV3 inference.
-                </p>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
-      ) : (
-        /* BATCH PROCESSING WORKFLOW */
-        <div className="space-y-6">
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (e.dataTransfer.files) handleBatchFileSelect(e.dataTransfer.files);
-            }}
-            onClick={() => batchInputRef.current?.click()}
-            className="glass-card border-2 border-dashed border-gray-700 hover:border-wasto-500/50 rounded-2xl p-8 text-center cursor-pointer transition-all flex flex-col items-center justify-center space-y-3"
-          >
+      )}
+
+      {/* BATCH UPLOAD WORKSPACE */}
+      {activeTab === 'batch' && (
+        <div
+          id={batchPanelId}
+          role="tabpanel"
+          aria-labelledby={batchTabId}
+          className="space-y-6"
+        >
+          <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-5">
             <input
               ref={batchInputRef}
               type="file"
               multiple
-              accept="image/*"
-              onChange={(e) => e.target.files && handleBatchFileSelect(e.target.files)}
-              className="hidden"
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              aria-label="Choose multiple images for batch classification"
+              onChange={(e) => {
+                if (e.target.files) addBatchFiles(Array.from(e.target.files));
+              }}
             />
-            <div className="w-12 h-12 rounded-2xl bg-surface-800 border border-gray-700 flex items-center justify-center text-wasto-400">
-              <Upload className="w-6 h-6" />
+
+            <div
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setBatchDragActive(true);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setBatchDragActive(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setBatchDragActive(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setBatchDragActive(false);
+                if (e.dataTransfer.files) {
+                  addBatchFiles(Array.from(e.dataTransfer.files));
+                }
+              }}
+              className={`border border-dashed rounded-[16px] px-6 py-8 text-center transition-colors ${
+                batchDragActive
+                  ? 'border-[#245C3B] bg-[#E5EFE4]/40'
+                  : 'border-[#DCE3DA] bg-[#F7F8F4]/55'
+              }`}
+            >
+              <p className="text-[16px] font-semibold text-[#18251D]">
+                Add multiple waste photos
+              </p>
+              <p className="text-[14px] text-[#526158] mt-1">
+                JPEG, PNG, or WEBP · up to 50 images per batch, 15 MB each
+              </p>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => batchInputRef.current?.click()}
+                  className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#18251D] text-[14px] font-medium transition-colors"
+                >
+                  <FolderOpen size={16} strokeWidth={1.85} aria-hidden="true" />
+                  <span>Choose files</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLoadSampleBatch}
+                  disabled={batchSamplesLoading}
+                  className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#245C3B] text-[14px] font-medium transition-colors"
+                >
+                  <span>
+                    {batchSamplesLoading ? 'Loading samples…' : 'Load 4 sample photos'}
+                  </span>
+                </button>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium text-white">Select multiple images for batch processing</p>
-              <p className="text-xs text-gray-400 mt-1">Up to 50 images per batch (Partial failure isolated)</p>
-            </div>
+
+            {batchError && (
+              <StatusNotice tone="error" role="alert">
+                {batchError}
+              </StatusNotice>
+            )}
+
             {batchFiles.length > 0 && (
-              <span className="px-3 py-1 rounded-full bg-wasto-500/20 text-wasto-400 border border-wasto-500/30 text-xs font-mono">
-                {batchFiles.length} files selected
-              </span>
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <p className="text-[14px] font-medium text-[#18251D] tabular-nums">
+                    {batchFiles.length} image{batchFiles.length === 1 ? '' : 's'} queued
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleClearBatch}
+                      className="px-3.5 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#526158] hover:text-[#18251D] text-[13px] font-medium transition-colors"
+                    >
+                      Clear queue
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRunBatch}
+                      disabled={batchLoading}
+                      className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] disabled:bg-[#DCE3DA] disabled:text-[#526158] text-white text-[14px] font-medium transition-colors"
+                    >
+                      {batchLoading && (
+                        <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                      )}
+                      <span>
+                        {batchLoading
+                          ? `Classifying ${batchFiles.length} images…`
+                          : `Classify batch (${batchFiles.length})`}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border border-[#DCE3DA] rounded-[8px] divide-y divide-[#DCE3DA] max-h-[280px] overflow-y-auto">
+                  {batchFiles.map((entry, idx) => (
+                    <div
+                      key={`${entry.file.name}-${idx}`}
+                      className="px-3.5 py-2.5 flex items-center justify-between gap-3 bg-[#FFFFFF]"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img
+                          src={entry.previewUrl}
+                          alt={entry.file.name}
+                          className="w-10 h-10 rounded-[6px] object-cover border border-[#DCE3DA] shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-[14px] font-medium text-[#18251D] truncate">
+                            {entry.file.name}
+                          </p>
+                          <p className="text-[12px] text-[#526158] tabular-nums">
+                            {formatBytes(entry.file.size)}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBatchIndex(idx)}
+                        aria-label={`Remove ${entry.file.name}`}
+                        className="min-w-[44px] min-h-[44px] rounded-[8px] flex items-center justify-center text-[#526158] hover:text-[#B33D35] hover:bg-[#FDF2F1] transition-colors shrink-0"
+                      >
+                        <Trash2 size={16} strokeWidth={1.85} aria-hidden="true" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
-          {batchFiles.length > 0 && (
-            <div className="flex gap-3">
-              <button
-                onClick={handleRunBatch}
-                disabled={isBatchProcessing}
-                className="px-6 py-2.5 rounded-xl bg-wasto-500 text-surface-900 font-semibold text-sm hover:bg-wasto-400 transition-all flex items-center space-x-2"
-              >
-                {isBatchProcessing ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-surface-900 border-t-transparent rounded-full animate-spin"></div>
-                    <span>Processing Batch...</span>
-                  </>
-                ) : (
-                  <>
-                    <FileText className="w-4 h-4" />
-                    <span>Run Batch Inference ({batchFiles.length})</span>
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
-          {batchError && (
-            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
-              {batchError}
-            </div>
-          )}
-
-          {/* Batch Results View */}
           {batchResult && (
-            <div className="space-y-6">
-              {/* Batch Aggregates */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <div className="glass-card p-4 rounded-xl border border-gray-800">
-                  <span className="text-xs text-gray-400">Processed</span>
-                  <p className="text-2xl font-bold font-mono text-white">{batchResult.total_items}</p>
-                </div>
-                <div className="glass-card p-4 rounded-xl border border-gray-800">
-                  <span className="text-xs text-gray-400">Success / Failed</span>
-                  <p className="text-2xl font-bold font-mono text-emerald-400">
-                    {batchResult.success_count} / <span className="text-rose-400">{batchResult.failure_count}</span>
+            <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-5">
+              {batchResult.is_demo_fixture && (
+                <StatusNotice tone="info">
+                  Deterministic batch results shown because the backend API is
+                  offline.
+                </StatusNotice>
+              )}
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-[#DCE3DA]">
+                <div>
+                  <h2 className="text-[20px] font-semibold text-[#18251D]">
+                    Batch summary
+                  </h2>
+                  <p className="text-[13px] text-[#526158] tabular-nums mt-0.5">
+                    Processed {batchResult.total_items} item
+                    {batchResult.total_items === 1 ? '' : 's'} · Avg{' '}
+                    {batchResult.average_latency_ms.toFixed(1)} ms/image
                   </p>
                 </div>
-                <div className="glass-card p-4 rounded-xl border border-gray-800">
-                  <span className="text-xs text-gray-400">Total Latency</span>
-                  <p className="text-2xl font-bold font-mono text-white">{batchResult.total_latency_ms.toFixed(0)} ms</p>
+                <button
+                  type="button"
+                  onClick={handleExportBatchCsv}
+                  className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#18251D] text-[14px] font-medium transition-colors self-start sm:self-auto"
+                >
+                  <Download size={16} strokeWidth={1.85} aria-hidden="true" />
+                  <span>Export CSV</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 border border-[#DCE3DA] rounded-[8px] divide-y sm:divide-y-0 sm:divide-x divide-[#DCE3DA]">
+                <div className="p-4">
+                  <p className="text-[12px] text-[#526158]">Processed</p>
+                  <p className="text-[24px] font-semibold text-[#18251D] tabular-nums mt-1">
+                    {batchResult.success_count}
+                  </p>
                 </div>
-                <div className="glass-card p-4 rounded-xl border border-gray-800 flex items-center justify-between">
-                  <div>
-                    <span className="text-xs text-gray-400">Export Report</span>
-                    <p className="text-xs font-mono text-wasto-400">CSV Spreadsheet</p>
-                  </div>
-                  <button
-                    onClick={exportBatchCsv}
-                    className="p-2.5 rounded-lg bg-surface-800 hover:bg-surface-700 border border-gray-700 text-white"
-                    title="Export CSV"
-                  >
-                    <Download className="w-4 h-4" />
-                  </button>
+                <div className="p-4">
+                  <p className="text-[12px] text-[#526158]">Failed</p>
+                  <p className="text-[24px] font-semibold text-[#18251D] tabular-nums mt-1">
+                    {batchResult.failure_count}
+                  </p>
+                </div>
+                <div className="p-4">
+                  <p className="text-[12px] text-[#526158]">Needs review</p>
+                  <p className="text-[24px] font-semibold text-[#8A570B] tabular-nums mt-1">
+                    {batchResult.items.filter((i) => i.is_uncertain).length}
+                  </p>
+                </div>
+                <div className="p-4">
+                  <p className="text-[12px] text-[#526158]">Total time</p>
+                  <p className="text-[24px] font-semibold text-[#18251D] tabular-nums mt-1">
+                    {batchResult.total_latency_ms.toFixed(0)} ms
+                  </p>
                 </div>
               </div>
 
-              {/* Items List */}
-              <div className="glass-card rounded-2xl border border-gray-800 overflow-hidden">
-                <div className="p-4 border-b border-gray-800 flex justify-between items-center">
-                  <h3 className="text-sm font-semibold text-white">Batch Items ({batchResult.items.length})</h3>
+              {batchResult.failures.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-[14px] font-semibold text-[#B33D35] flex items-center gap-1.5">
+                    <AlertCircle size={15} aria-hidden="true" />
+                    <span>Failed items ({batchResult.failures.length})</span>
+                  </h3>
+                  <ul className="border border-[#EBC5C2] rounded-[8px] divide-y divide-[#EBC5C2] bg-[#FDF2F1] text-[13px]">
+                    {batchResult.failures.map((f, idx) => (
+                      <li key={idx} className="px-3.5 py-2.5 flex justify-between gap-3">
+                        <span className="font-medium text-[#18251D]">{f.filename}</span>
+                        <span className="text-[#852721]">{f.error}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <div className="divide-y divide-gray-800/60 max-h-96 overflow-y-auto">
-                  {batchResult.items.map((item, idx) => (
-                    <div key={idx} className="p-4 flex items-center justify-between text-xs hover:bg-surface-800/40">
-                      <div className="space-y-0.5">
-                        <span className="font-mono text-gray-200">{item.filename}</span>
-                        <div className="flex gap-2 text-gray-400">
-                          <span>Pred: {item.material_label}</span>
-                          <span>•</span>
-                          <span>{(item.confidence * 100).toFixed(1)}%</span>
-                        </div>
-                      </div>
-                      <div>{renderRoutingBadge(item.routing_category)}</div>
-                    </div>
-                  ))}
-                  {batchResult.failures.map((fail, idx) => (
-                    <div key={`fail-${idx}`} className="p-4 flex items-center justify-between text-xs bg-rose-500/5">
-                      <span className="font-mono text-rose-400">{fail.filename}</span>
-                      <span className="text-rose-400">{fail.error}</span>
-                    </div>
-                  ))}
-                </div>
+              )}
+
+              <div className="overflow-x-auto -mx-2 px-2">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-[#DCE3DA] text-[12px] font-semibold uppercase tracking-[0.04em] text-[#526158]">
+                      <th className="py-3 pr-4">File</th>
+                      <th className="py-3 pr-4">Material</th>
+                      <th className="py-3 pr-4">Destination</th>
+                      <th className="py-3 pr-4">Confidence</th>
+                      <th className="py-3 text-right">Latency</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#DCE3DA] text-[14px]">
+                    {batchResult.items.map((item) => (
+                      <tr key={item.prediction_id}>
+                        <td className="py-3 pr-4 font-medium text-[#18251D] max-w-[200px] truncate">
+                          {item.filename}
+                        </td>
+                        <td className="py-3 pr-4 text-[#18251D]">
+                          {item.is_uncertain ? 'Uncertain item' : item.material_label}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <CategoryBadge category={item.routing_category} size="sm" />
+                        </td>
+                        <td className="py-3 pr-4 tabular-nums font-medium text-[#18251D]">
+                          {(item.confidence * 100).toFixed(1)}%
+                        </td>
+                        <td className="py-3 text-right tabular-nums text-[#526158]">
+                          {item.inference_latency_ms.toFixed(1)} ms
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

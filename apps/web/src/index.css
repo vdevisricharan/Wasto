@@ -1,27 +1,72 @@
 @import "tailwindcss";
 @config "../tailwind.config.js";
 
+:root {
+  color-scheme: light;
+  --wasto-canvas: #F7F8F4;
+  --wasto-surface: #FFFFFF;
+  --wasto-subtle: #EEF2EB;
+  --wasto-text: #18251D;
+  --wasto-text-secondary: #526158;
+  --wasto-border: #DCE3DA;
+  --wasto-primary: #245C3B;
+  --wasto-primary-hover: #19452B;
+  --wasto-soft-green: #E5EFE4;
+  --wasto-lime: #D9E8AA;
+  --wasto-warning: #8A570B;
+  --wasto-error: #B33D35;
+  --wasto-info: #315E8B;
+  --wasto-shadow-floating: 0 8px 24px rgba(24, 37, 29, 0.08), 0 1px 3px rgba(24, 37, 29, 0.05);
+}
+
+html {
+  color-scheme: light;
+  background-color: var(--wasto-canvas);
+  color: var(--wasto-text);
+  font-family: 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
 body {
-  background-color: #0B0F17;
-  color: #F3F4F6;
-  font-family: 'Poppins', system-ui, sans-serif;
+  background-color: var(--wasto-canvas);
+  color: var(--wasto-text);
+  font-family: 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.glass-card {
-  background: rgba(17, 24, 39, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
-.glass-card-interactive {
-  background: rgba(17, 24, 39, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+/* Consistent visible keyboard focus across light surfaces */
+:focus-visible {
+  outline: 2px solid var(--wasto-primary);
+  outline-offset: 2px;
 }
 
-.glass-card-interactive:hover {
-  border-color: rgba(23, 222, 143, 0.4);
-  transform: translateY(-2px);
+/* Tabular numerals utility for metrics, counts, scores, and timestamps */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Floating layer elevation */
+.shadow-floating {
+  box-shadow: var(--wasto-shadow-floating);
+}
+
+/* Reduced motion compliance */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

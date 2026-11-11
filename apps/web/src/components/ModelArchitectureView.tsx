@@ -1,147 +1,435 @@
-import React from 'react';
-import { Cpu, CheckCircle2, AlertTriangle, Layers, GitBranch, ArrowRight, Activity, Terminal } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ArrowRight } from 'lucide-react';
+import { ModelMetadata, RoutingCategory } from '../types';
+import { fetchModelMetadata } from '../api/client';
+import { OperationalModeInfo } from '../theme/tokens';
+import { CategoryBadge } from './ui/CategoryBadge';
+import { PageHeader } from './ui/PageHeader';
+import { StatusNotice } from './ui/StatusNotice';
 
-export const ModelArchitectureView: React.FC = () => {
+interface ModelArchitectureViewProps {
+  modeInfo: OperationalModeInfo;
+}
+
+const ROUTING_POLICY_ROWS: Array<{
+  material: string;
+  destination: RoutingCategory;
+  angle: string;
+  compostRule: string;
+}> = [
+  {
+    material: 'Organic Waste',
+    destination: 'Organic',
+    angle: '45° (Chute 1)',
+    compostRule: 'Permitted when confidence >= 60%',
+  },
+  {
+    material: 'Paper and Cardboard',
+    destination: 'Recyclable',
+    angle: '90° (Chute 2)',
+    compostRule: 'Clean dry fiber stream',
+  },
+  {
+    material: 'Aluminium',
+    destination: 'Recyclable',
+    angle: '90° (Chute 2)',
+    compostRule: 'Blocked from compost routing',
+  },
+  {
+    material: 'Carton',
+    destination: 'Recyclable',
+    angle: '90° (Chute 2)',
+    compostRule: 'Laminated beverage packaging',
+  },
+  {
+    material: 'Glass',
+    destination: 'Recyclable',
+    angle: '90° (Chute 2)',
+    compostRule: 'Blocked from compost routing',
+  },
+  {
+    material: 'Plastic',
+    destination: 'Recyclable',
+    angle: '90° (Chute 2)',
+    compostRule: 'Blocked from compost routing',
+  },
+  {
+    material: 'Other Plastics',
+    destination: 'Residual',
+    angle: '135° (Chute 3)',
+    compostRule: 'Blocked from compost routing',
+  },
+  {
+    material: 'Textiles',
+    destination: 'Residual',
+    angle: '135° (Chute 3)',
+    compostRule: 'Non-curbside fiber recovery',
+  },
+  {
+    material: 'Wood',
+    destination: 'Residual',
+    angle: '135° (Chute 3)',
+    compostRule: 'Treated or structural wood',
+  },
+];
+
+const PIPELINE_STEPS = [
+  {
+    step: '01',
+    title: 'Image capture',
+    detail: 'JPEG, PNG, or WEBP up to 15 MB resized to 224 × 224 × 3 RGB',
+  },
+  {
+    step: '02',
+    title: 'Classification',
+    detail: 'MobileNetV3Large produces calibrated probabilities across 9 materials',
+  },
+  {
+    step: '03',
+    title: 'Safety gating',
+    detail: 'Rejects low confidence (< 60%) or small top-two margins (< 15%)',
+  },
+  {
+    step: '04',
+    title: 'Audit & actuation',
+    detail: 'Logs SQLite record and dispatches UART frame when armed',
+  },
+];
+
+const BENCHMARK_ROWS = [
+  { stage: 'Preprocessing & RGB resize', metric: '1.83 ms', notes: 'Pillow bilinear resize + tensor norm' },
+  { stage: 'MobileNetV3Large forward pass', metric: '205.54 ms', notes: 'AMD64 CPU float32 mean (218.16 ms p95)' },
+  { stage: 'UART serial command frame', metric: '0.74 ms', notes: 'WASTO_SERIAL_V1.0 at 9600 bps' },
+  { stage: 'Total single-frame pipeline', metric: '208.11 ms', notes: 'Sustained throughput ~4.9 FPS' },
+];
+
+export const ModelArchitectureView: React.FC<ModelArchitectureViewProps> = ({
+  modeInfo,
+}) => {
+  const [metadata, setMetadata] = useState<ModelMetadata | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchModelMetadata().then((data) => {
+      if (mounted && data) setMetadata(data);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [modeInfo.apiReachable]);
+
+  const inputShapeText = metadata?.input_shape
+    ? `${metadata.input_shape.join(' × ')} RGB`
+    : '256 × 256 × 3 RGB';
+  const pipelineSteps = [
+    {
+      step: '01',
+      title: 'Image capture',
+      detail: `JPEG, PNG, or WEBP up to 15 MB resized to ${inputShapeText}`,
+    },
+    ...PIPELINE_STEPS.slice(1),
+  ];
+  const confidenceThresholdPct = Math.round(
+    (metadata?.thresholds?.confidence_threshold ?? 0.6) * 100
+  );
+  const marginPct = Math.round(
+    (metadata?.thresholds?.ambiguity_margin ?? 0.15) * 100
+  );
+  const checksum =
+    metadata?.checksum_sha256 ||
+    '2de1c4619c3fb2dd2aa4d42adf1a71a1cf48cb7e4e5738b0930a9d46dcf7f3c2';
+
   return (
-    <div className="space-y-8 animate-fade-slide max-w-5xl mx-auto">
-      <div>
-        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Cpu className="w-6 h-6 text-wasto-400" />
-          Model Architecture & System Specification
-        </h2>
-        <p className="text-xs text-gray-400 mt-1">
-          Technical specifications, empirical CPU benchmarks, and hardware-software contracts.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Model & system"
+        description="Model architecture, safety routing rules, verified CPU timings, and embedded sorter specifications."
+        modeInfo={modeInfo}
+      />
 
-      {/* Architecture Flowchart Card */}
-      <div className="glass-card p-6 sm:p-8 rounded-2xl border border-gray-800 space-y-6">
-        <h3 className="text-base font-bold text-white flex items-center gap-2">
-          <GitBranch className="w-4 h-4 text-wasto-400" />
-          End-to-End System Pipeline
-        </h3>
+      {!modeInfo.apiReachable && (
+        <StatusNotice tone="info">
+          Live backend metadata is offline; showing verified reference
+          specifications from the deployed model card.
+        </StatusNotice>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono">
-          <div className="p-4 rounded-xl bg-surface-800/80 border border-gray-700/80 space-y-2">
-            <span className="text-[10px] text-wasto-400 font-bold">STAGE 01</span>
-            <h4 className="font-sans font-bold text-sm text-white">Video Ingestion</h4>
-            <p className="font-sans text-gray-400 text-[11px]">
-              OpenCV camera capture, BGR to RGB conversion, 256×256 bilinear resize, rate-limited bounded buffer.
+      {/* Key Specifications Strip */}
+      <section aria-label="Model specifications">
+        <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 lg:divide-x divide-[#DCE3DA]">
+          <div className="p-5 sm:border-b lg:border-b-0 sm:border-r lg:border-r-0 border-[#DCE3DA]">
+            <p className="text-[13px] font-medium text-[#526158]">Backbone</p>
+            <p className="text-[22px] font-semibold text-[#18251D] mt-1.5">
+              MobileNetV3Large
+            </p>
+            <p className="text-[12px] text-[#526158] mt-1 tabular-nums">
+              Keras H5 · 17.08 MB weights
             </p>
           </div>
 
-          <div className="p-4 rounded-xl bg-surface-800/80 border border-gray-700/80 space-y-2">
-            <span className="text-[10px] text-wasto-400 font-bold">STAGE 02</span>
-            <h4 className="font-sans font-bold text-sm text-white">MobileNetV3 Edge CNN</h4>
-            <p className="font-sans text-gray-400 text-[11px]">
-              269-layer depthwise separable network with hard-swish activation, outputting 9 material softmax logits.
+          <div className="p-5 sm:border-b lg:border-b-0 border-[#DCE3DA]">
+            <p className="text-[13px] font-medium text-[#526158]">Input dimensions</p>
+            <p className="text-[22px] font-semibold text-[#18251D] mt-1.5 tabular-nums">
+              {inputShapeText}
+            </p>
+            <p className="text-[12px] text-[#526158] mt-1">
+              TrashNet + 5,078-image domain corpus
             </p>
           </div>
 
-          <div className="p-4 rounded-xl bg-surface-800/80 border border-gray-700/80 space-y-2">
-            <span className="text-[10px] text-wasto-400 font-bold">STAGE 03</span>
-            <h4 className="font-sans font-bold text-sm text-white">Policy & Abstention</h4>
-            <p className="font-sans text-gray-400 text-[11px]">
-              Evaluates confidence ($\ge 0.60$) and ambiguity margin ($\ge 0.15$). Maps to Organic, Recyclable, or Residual.
+          <div className="p-5 sm:border-r lg:border-r-0 border-[#DCE3DA]">
+            <p className="text-[13px] font-medium text-[#526158]">Confidence gates</p>
+            <p className="text-[22px] font-semibold text-[#18251D] mt-1.5 tabular-nums">
+              &ge; {confidenceThresholdPct}% · &ge; {marginPct}% gap
+            </p>
+            <p className="text-[12px] text-[#526158] mt-1">
+              Uncertain items route to manual review
             </p>
           </div>
 
-          <div className="p-4 rounded-xl bg-surface-800/80 border border-gray-700/80 space-y-2">
-            <span className="text-[10px] text-wasto-400 font-bold">STAGE 04</span>
-            <h4 className="font-sans font-bold text-sm text-white">Arduino Servo Actuation</h4>
-            <p className="font-sans text-gray-400 text-[11px]">
-              Non-blocking UART protocol (9600 baud). Deflects servo flap to 45°, 90°, or 135° with watchdog protection.
+          <div className="p-5">
+            <p className="text-[13px] font-medium text-[#526158]">Policy version</p>
+            <p className="text-[22px] font-semibold text-[#18251D] mt-1.5 tabular-nums">
+              {metadata?.routing_policy_version || 'v1.0'}
+            </p>
+            <p className="text-[12px] text-[#526158] mt-1">
+              Zero false biodegradability enforced
             </p>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Empirical Benchmarks vs Claim Reconciliation */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass-card p-6 rounded-2xl border border-gray-800 space-y-4">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Activity className="w-4 h-4 text-emerald-400" />
-            Empirical Benchmark Measurements (AMD64 CPU)
-          </h3>
-          <div className="p-4 rounded-xl bg-surface-800 border border-gray-700/80 space-y-2.5 text-xs font-mono">
-            <div className="flex justify-between">
-              <span className="text-gray-400">Image Preprocessing (mean):</span>
-              <span className="text-white font-bold">1.83 ms</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Forward Pass Latency (mean):</span>
-              <span className="text-white font-bold">205.54 ms</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Forward Pass p95 Latency:</span>
-              <span className="text-white font-bold">218.16 ms</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Serial Bridge Dispatch Overhead:</span>
-              <span className="text-white font-bold">0.74 ms</span>
-            </div>
-            <div className="border-t border-gray-700 pt-2 flex justify-between text-sm">
-              <span className="text-wasto-400 font-semibold">Total Pipeline Latency:</span>
-              <span className="text-wasto-400 font-bold">208.11 ms (~4.9 FPS)</span>
-            </div>
-          </div>
-          <p className="text-[11px] text-gray-400 leading-relaxed">
-            * Benchmarked on Python 3.11 with unquantized float32 TensorFlow weights on an AMD64 CPU.
-            Continuous 30+ FPS edge execution requires INT8 quantization (e.g. TFLite/Edge TPU) or discrete GPU acceleration.
+      {/* Light End-to-End Inference Pipeline */}
+      <section className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-4">
+        <div className="pb-3 border-b border-[#DCE3DA]">
+          <h2 className="text-[20px] font-semibold text-[#18251D]">
+            Inference & sorting pipeline
+          </h2>
+          <p className="text-[13px] text-[#526158] mt-0.5">
+            Deterministic path from raw frame ingestion to verified chute decision
           </p>
         </div>
 
-        {/* Taxonomy Reconciliation Card */}
-        <div className="glass-card p-6 rounded-2xl border border-gray-800 space-y-4">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-wasto-400" />
-            Taxonomy & Bug Reconciliation
-          </h3>
-          <div className="space-y-3 text-xs text-gray-300">
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
-              <span className="font-bold block text-rose-400 mb-1">Legacy 2023 Prototype Heuristic (Fixed):</span>
-              <code>if class == "plastic": Non-Bio else: Bio</code>
-              <p className="mt-1 text-gray-400 text-[11px]">
-                Erronously classified Glass, Metal, and Trash as "Biodegradable" simply because they were not plastic.
-              </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {pipelineSteps.map((item, idx) => (
+            <div
+              key={item.step}
+              className="relative p-4 rounded-[10px] border border-[#DCE3DA] bg-[#F7F8F4] flex flex-col justify-between gap-2"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] font-semibold text-[#245C3B] bg-[#E5EFE4] px-2 py-0.5 rounded-[6px] tabular-nums">
+                  Step {item.step}
+                </span>
+                {idx < PIPELINE_STEPS.length - 1 && (
+                  <ArrowRight
+                    size={15}
+                    className="hidden lg:block text-[#526158]"
+                    aria-hidden="true"
+                  />
+                )}
+              </div>
+              <div>
+                <h3 className="text-[15px] font-semibold text-[#18251D]">
+                  {item.title}
+                </h3>
+                <p className="text-[13px] text-[#526158] leading-[1.45] mt-1">
+                  {item.detail}
+                </p>
+              </div>
             </div>
+          ))}
+        </div>
+      </section>
 
-            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
-              <span className="font-bold block text-emerald-400 mb-1">Production Wasto 1.0 Policy:</span>
-              <p className="text-[11px] leading-relaxed text-gray-300">
-                Material composition is strictly decoupled from routing. Glass and Metal route deterministically to
-                <strong> Recyclable</strong>; Organic Waste routes to <strong>Organic</strong>; complex polymers route to
-                <strong> Residual</strong>. Uncertain items abstain to manual review.
-              </p>
+      {/* Material Classes & Routing Guardrails */}
+      <section className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 pb-3 border-b border-[#DCE3DA]">
+          <div>
+            <h2 className="text-[20px] font-semibold text-[#18251D]">
+              Material routing policy
+            </h2>
+            <p className="text-[13px] text-[#526158] mt-0.5">
+              All 9 trained classes map explicitly to 3 physical chutes or manual review
+            </p>
+          </div>
+          <span className="text-[12px] font-medium text-[#526158]">
+            Servo neutral rest angle: 90°
+          </span>
+        </div>
+
+        <div className="overflow-x-auto -mx-2 px-2">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-[#DCE3DA] text-[12px] font-semibold uppercase tracking-[0.04em] text-[#526158]">
+                <th className="py-3 pr-4">Material class</th>
+                <th className="py-3 pr-4">Sorting destination</th>
+                <th className="py-3 pr-4">Servo angle</th>
+                <th className="py-3">Guardrail</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#DCE3DA] text-[14px]">
+              {ROUTING_POLICY_ROWS.map((row) => (
+                <tr key={row.material}>
+                  <td className="py-3 pr-4 font-medium text-[#18251D]">
+                    {row.material}
+                  </td>
+                  <td className="py-3 pr-4">
+                    <CategoryBadge category={row.destination} size="sm" />
+                  </td>
+                  <td className="py-3 pr-4 tabular-nums text-[#18251D]">
+                    {row.angle}
+                  </td>
+                  <td className="py-3 text-[#526158]">{row.compostRule}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Two-Column Technical Reference: CPU Benchmarks + Embedded Hardware */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <section className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-4">
+          <div className="pb-3 border-b border-[#DCE3DA]">
+            <h2 className="text-[20px] font-semibold text-[#18251D]">
+              Verified CPU benchmarks
+            </h2>
+            <p className="text-[13px] text-[#526158] mt-0.5">
+              Measured on warm AMD64 Python runtime (float32 inference)
+            </p>
+          </div>
+
+          <dl className="divide-y divide-[#DCE3DA] text-[14px]">
+            {BENCHMARK_ROWS.map((row) => (
+              <div
+                key={row.stage}
+                className="py-3 flex items-start justify-between gap-4"
+              >
+                <div>
+                  <dt className="font-medium text-[#18251D]">{row.stage}</dt>
+                  <dd className="text-[12px] text-[#526158] mt-0.5">{row.notes}</dd>
+                </div>
+                <dd className="font-semibold text-[#18251D] tabular-nums shrink-0">
+                  {row.metric}
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="p-3.5 rounded-[8px] bg-[#F7F8F4] border border-[#DCE3DA] space-y-1">
+            <p className="text-[12px] font-medium text-[#526158]">
+              Model artifact SHA-256
+            </p>
+            <p className="font-mono text-[12px] text-[#18251D] break-all">
+              {checksum}
+            </p>
+          </div>
+        </section>
+
+        <section className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-4">
+          <div className="pb-3 border-b border-[#DCE3DA]">
+            <h2 className="text-[20px] font-semibold text-[#18251D]">
+              Embedded sorter & serial protocol
+            </h2>
+            <p className="text-[13px] text-[#526158] mt-0.5">
+              Arduino Uno R3 controller specifications and UART framing
+            </p>
+          </div>
+
+          <dl className="divide-y divide-[#DCE3DA] text-[14px]">
+            <div className="py-2.5 flex justify-between gap-3">
+              <dt className="text-[#526158]">Microcontroller</dt>
+              <dd className="font-medium text-[#18251D]">Arduino Uno R3</dd>
+            </div>
+            <div className="py-2.5 flex justify-between gap-3">
+              <dt className="text-[#526158]">UART baud rate</dt>
+              <dd className="font-mono text-[#18251D]">9600 bps (8N1)</dd>
+            </div>
+            <div className="py-2.5 flex justify-between gap-3">
+              <dt className="text-[#526158]">Pin assignments</dt>
+              <dd className="font-mono text-[13px] text-[#18251D] text-right">
+                Servo D9 · Trig D3 · Echo D2 · LED D13
+              </dd>
+            </div>
+            <div className="py-2.5 flex justify-between gap-3">
+              <dt className="text-[#526158]">Watchdog & telemetry</dt>
+              <dd className="font-medium text-[#18251D] tabular-nums text-right">
+                30s auto-disarm · 3s interval
+              </dd>
+            </div>
+          </dl>
+
+          <div className="p-3.5 rounded-[8px] bg-[#F7F8F4] border border-[#DCE3DA] space-y-2 text-[12px]">
+            <p className="font-semibold text-[#18251D]">Serial frame syntax</p>
+            <div className="space-y-1 font-mono text-[#18251D]">
+              <p>CMD:&lt;seq&gt;:&lt;action&gt;:&lt;target_bin&gt;:&lt;param&gt;\n</p>
+              <p className="text-[#526158]">Example: CMD:042:SORT:RECYCLABLE:1200</p>
+              <p>TELEM:&lt;state&gt;:&lt;distance_cm&gt;:&lt;armed&gt;</p>
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
-      {/* Model Metadata Card */}
-      <div className="glass-card p-6 rounded-2xl border border-gray-800 space-y-4 font-mono text-xs">
-        <h3 className="text-base font-bold text-white font-sans flex items-center gap-2">
-          <Terminal className="w-4 h-4 text-wasto-400" />
-          Model Metadata & Artifact Contract
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-gray-300">
-          <div>
-            <span className="text-gray-500 block">Model Architecture:</span>
-            <span className="text-white">MobileNetV3Large (Functional, 269 layers)</span>
-          </div>
-          <div>
-            <span className="text-gray-500 block">Input Shape:</span>
-            <span className="text-white">[None, 256, 256, 3] (RGB, [0, 255] float)</span>
-          </div>
-          <div>
-            <span className="text-gray-500 block">Artifact File:</span>
-            <span className="text-white">Single Prediction Model/model.h5 (17.08 MB)</span>
-          </div>
-          <div>
-            <span className="text-gray-500 block">SHA-256 Checksum:</span>
-            <span className="text-wasto-400 truncate block">2de1c4619c3fb2dd2aa4d42adf1a71a1cf48cb7e4e5738b0930a9d46dcf7f3c2</span>
-          </div>
-        </div>
+      {/* Operational Modes & Known Limitations */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <section className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-3">
+          <h2 className="text-[18px] font-semibold text-[#18251D] pb-3 border-b border-[#DCE3DA]">
+            Runtime operational modes
+          </h2>
+          <dl className="divide-y divide-[#DCE3DA] text-[13px]">
+            <div className="py-3 space-y-1">
+              <dt className="font-semibold text-[#19452B]">
+                Live model · Connected hardware
+              </dt>
+              <dd className="text-[#526158]">
+                MobileNetV3 runs real inference on uploaded images and physical
+                Arduino servos actuate via serial UART.
+              </dd>
+            </div>
+            <div className="py-3 space-y-1">
+              <dt className="font-semibold text-[#23476B]">
+                Live model · Simulated hardware
+              </dt>
+              <dd className="text-[#526158]">
+                Classifications and SQLite persistence run live; hardware commands
+                are acknowledged by the local software simulator.
+              </dd>
+            </div>
+            <div className="py-3 space-y-1">
+              <dt className="font-semibold text-[#754909]">
+                Demo data · Simulated hardware
+              </dt>
+              <dd className="text-[#526158]">
+                Shown only when the FastAPI service is unreachable; sample outputs
+                use deterministic placeholders clearly labeled as demo fixtures.
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6 space-y-3">
+          <h2 className="text-[18px] font-semibold text-[#18251D] pb-3 border-b border-[#DCE3DA]">
+            Known operational boundaries
+          </h2>
+          <ul className="space-y-2.5 text-[14px] text-[#526158] leading-[1.55]">
+            <li>
+              • Designed for single-item inspection per image; overlapping items
+              in a single frame should route through manual review.
+            </li>
+            <li>
+              • Heavily soiled packaging, extreme reflections, or dim backlighting
+              can reduce top-class margins and trigger conservative abstention.
+            </li>
+            <li>
+              • CPU inference runs around 4.9 FPS in single-stream synchronous
+              execution; batch uploads scale linearly with queue size.
+            </li>
+            <li>
+              • Category badge colors identify Wasto interface routing chutes and
+              do not encode local municipal bin color regulations.
+            </li>
+          </ul>
+        </section>
       </div>
     </div>
   );

@@ -1,267 +1,551 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Layers,
   ArrowRight,
-  RotateCw,
-  Gauge,
-  Activity,
-  CheckCircle2,
-  AlertTriangle,
-  Radio,
-  Sliders,
+  ChevronDown,
+  RefreshCw,
+  Video,
 } from 'lucide-react';
-import { DashboardSummary } from '../types';
+import {
+  DashboardSummary,
+  HistoryItem,
+  RoutingCategory,
+} from '../types';
+import { fetchHistory } from '../api/client';
+import {
+  OperationalModeInfo,
+  ROUTING_CATEGORY_META,
+} from '../theme/tokens';
+import { NavTabId } from './AppShell';
+import { CategoryBadge, getCategoryIcon } from './ui/CategoryBadge';
+import { PageHeader } from './ui/PageHeader';
+import { StatusNotice } from './ui/StatusNotice';
 
 interface OverviewViewProps {
   summary: DashboardSummary | null;
-  onNavigate: (tab: string) => void;
+  modeInfo: OperationalModeInfo;
   onRefresh: () => void;
+  onNavigate: (tab: NavTabId) => void;
 }
 
-export const OverviewView: React.FC<OverviewViewProps> = ({ summary, onNavigate, onRefresh }) => {
-  const total = summary?.total_predictions || 0;
-  const sorts = summary?.total_actuated_sorts || 0;
-  const routing = summary?.routing_distribution || {};
-  const recyclableCount = routing['Recyclable'] || 0;
-  const organicCount = routing['Organic'] || 0;
-  const diversionRate = total > 0 ? (((recyclableCount + organicCount) / total) * 100).toFixed(1) : '0.0';
+const ROUTING_ORDER: RoutingCategory[] = [
+  'Organic',
+  'Recyclable',
+  'Residual',
+  'Unknown / Manual Review',
+];
 
-  const telem = summary?.latest_telemetry;
-  const fillPct = telem?.fill_pct ?? 57.5;
-  const distCm = telem?.distance_cm ?? 42.5;
-  const telemSource = telem?.source || 'SIMULATED';
+const HERO_THUMBNAILS = [
+  { src: '/samples/organic-scraps.jpg', label: 'Organic', alt: 'Organic food waste sample' },
+  { src: '/samples/cardboard-box.jpg', label: 'Paper', alt: 'Cardboard waste sample' },
+  { src: '/samples/glass-bottle.jpg', label: 'Glass', alt: 'Glass bottles waste sample' },
+];
 
-  const hw = summary?.hardware_status;
-  const isHwArmed = hw?.armed ?? false;
+export const OverviewView: React.FC<OverviewViewProps> = ({
+  summary,
+  modeInfo,
+  onRefresh,
+  onNavigate,
+}) => {
+  const [recentItems, setRecentItems] = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
+  const [deviceDetailsOpen, setDeviceDetailsOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadRecent = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetchHistory(1, 5);
+      setRecentItems(res.items ?? []);
+      setHistoryUnavailable(Boolean(res.unavailable));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRecent();
+  }, [loadRecent, summary?.timestamp]);
+
+  const handleRefreshAll = async () => {
+    setRefreshing(true);
+    onRefresh();
+    await loadRecent();
+    window.setTimeout(() => setRefreshing(false), 300);
+  };
+
+  const totalPredictions = summary ? summary.total_predictions : null;
+  const totalSorts = summary ? summary.total_actuated_sorts : null;
+  const needsReviewCount = summary ? summary.uncertain_predictions_count : null;
+  const fillPct = summary?.latest_telemetry ? summary.latest_telemetry.fill_pct : null;
+
+  const rowTotal = ROUTING_ORDER.reduce((acc, key) => {
+    if (!summary) return acc;
+    if (key === 'Unknown / Manual Review') {
+      return (
+        acc +
+        (summary.routing_distribution?.[key] ?? summary.uncertain_predictions_count ?? 0)
+      );
+    }
+    return acc + (summary.routing_distribution?.[key] ?? 0);
+  }, 0);
+
+  const formatTimestamp = (ts?: number) => {
+    if (!ts) return '—';
+    const d = new Date(ts * 1000);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+
+  const formatRecentDate = (ts: number) => {
+    const d = new Date(ts * 1000);
+    return d.toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const modelStatusLabel = !modeInfo.apiReachable
+    ? 'Demo fixtures (API offline)'
+    : modeInfo.mlReady
+      ? 'MobileNetV3Large · Ready'
+      : 'Model unavailable';
+
+  const hardwareStatusLabel = !summary
+    ? '—'
+    : !modeInfo.apiReachable
+      ? 'Simulated (offline)'
+      : `${modeInfo.isSimulatedHw ? 'Simulated' : 'Physical'} · ${
+          modeInfo.hwArmed ? 'Armed' : 'Disarmed'
+        }`;
 
   return (
-    <div className="space-y-8 animate-fade-slide">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-3xl glass-card p-6 sm:p-10 border border-gray-800">
-        <div className="absolute top-0 right-0 -mt-10 -mr-10 w-96 h-96 bg-wasto-500/10 rounded-full blur-3xl pointer-events-none"></div>
-        <div className="relative z-10 max-w-3xl space-y-4">
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-wasto-500/10 border border-wasto-500/30 text-xs font-mono text-wasto-400">
-            <Radio className="w-3.5 h-3.5 animate-pulse text-wasto-400" />
-            <span>Operational Mode: {hw?.mode || 'SIMULATED'} HARDWARE</span>
-          </div>
-          <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
-            Automated Waste Sorting & Lifecycle Tracking
-          </h1>
-          <p className="text-gray-300 text-sm sm:text-base leading-relaxed">
-            Real-time MobileNetV3 computer vision with non-blocking Arduino Uno flap actuation
-            and end-to-end municipal source-to-recycling provenance.
-          </p>
-          <div className="pt-2 flex flex-wrap gap-3">
+    <div className="space-y-6">
+      <PageHeader
+        title="A clearer path for every piece of waste."
+        description="Classify materials, monitor sorting, and follow waste from collection to processing."
+        modeInfo={modeInfo}
+        actionsBelow
+        actions={
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
+              type="button"
               onClick={() => onNavigate('classify')}
-              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-wasto-500 text-surface-900 font-semibold text-sm hover:bg-wasto-400 transition-all shadow-lg shadow-wasto-500/20 active:scale-95"
+              className="inline-flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] text-white text-[14px] font-medium transition-colors"
             >
-              <Layers className="w-4 h-4" />
-              <span>Classify Waste</span>
-              <ArrowRight className="w-4 h-4" />
+              <span>Classify waste</span>
+              <ArrowRight size={16} strokeWidth={1.9} aria-hidden="true" />
             </button>
             <button
+              type="button"
               onClick={() => onNavigate('monitor')}
-              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-surface-800 text-gray-200 border border-gray-700 font-medium text-sm hover:bg-surface-700 transition-all active:scale-95"
+              className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#18251D] text-[14px] font-medium transition-colors"
             >
-              <span>Live Camera Monitor</span>
+              <Video size={16} strokeWidth={1.85} aria-hidden="true" />
+              <span>Open live monitor</span>
             </button>
             <button
-              onClick={onRefresh}
-              className="inline-flex items-center space-x-1.5 px-3 py-2.5 rounded-xl bg-surface-800 text-gray-400 hover:text-gray-200 border border-gray-700 text-sm transition-all"
-              title="Refresh Telemetry"
+              type="button"
+              onClick={handleRefreshAll}
+              disabled={refreshing}
+              aria-label="Refresh operational data"
+              title="Refresh operational data"
+              className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] px-3 rounded-[8px] bg-[#FFFFFF] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[#526158] hover:text-[#18251D] transition-colors disabled:opacity-60"
             >
-              <RotateCw className="w-4 h-4" />
+              <RefreshCw
+                size={16}
+                strokeWidth={1.85}
+                className={refreshing ? 'animate-spin' : ''}
+                aria-hidden="true"
+              />
             </button>
           </div>
+        }
+      />
+
+      {/* Restrained material reference strip */}
+      <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {HERO_THUMBNAILS.map((item) => (
+            <div key={item.label} className="flex items-center gap-2 shrink-0 pr-2">
+              <img
+                src={item.src}
+                alt={item.alt}
+                className="w-10 h-10 rounded-[8px] object-cover border border-[#DCE3DA] bg-[#EEF2EB]"
+              />
+              <span className="text-[13px] font-medium text-[#18251D]">
+                {item.label}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-between sm:justify-end gap-4 text-[13px] text-[#526158] shrink-0">
+          <span>9 trained material classes · 3 sorting chutes</span>
+          <button
+            type="button"
+            onClick={() => onNavigate('architecture')}
+            className="font-medium text-[#245C3B] hover:text-[#19452B] underline underline-offset-4 whitespace-nowrap"
+          >
+            Routing rules
+          </button>
         </div>
       </div>
 
-      {/* 4 Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1 */}
-        <div className="glass-card-interactive p-5 rounded-2xl border border-gray-800 space-y-2">
-          <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium uppercase tracking-wider">Total Classifications</span>
-            <Activity className="w-4 h-4 text-wasto-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white font-mono">{total}</div>
-          <p className="text-xs text-gray-400">Continuous inference evaluations</p>
-        </div>
-
-        {/* Metric 2 */}
-        <div className="glass-card-interactive p-5 rounded-2xl border border-gray-800 space-y-2">
-          <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium uppercase tracking-wider">Actuated Flap Sorts</span>
-            <Sliders className="w-4 h-4 text-blue-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white font-mono">{sorts}</div>
-          <div className="flex items-center space-x-1.5 text-xs text-blue-400">
-            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
-            <span>Firmware verified movements</span>
-          </div>
-        </div>
-
-        {/* Metric 3 */}
-        <div className="glass-card-interactive p-5 rounded-2xl border border-gray-800 space-y-2">
-          <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium uppercase tracking-wider">Diversion Rate</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white font-mono">{diversionRate}%</div>
-          <p className="text-xs text-gray-400">Diverted to Recyclable & Compost</p>
-        </div>
-
-        {/* Metric 4: Bin Capacity */}
-        <div className="glass-card-interactive p-5 rounded-2xl border border-gray-800 space-y-2">
-          <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium uppercase tracking-wider">Bin Telemetry</span>
-            <Gauge className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-white font-mono">{fillPct.toFixed(0)}%</span>
-            <span className="text-xs text-gray-400">({distCm.toFixed(1)} cm)</span>
-          </div>
-          {/* Fill Bar */}
-          <div className="w-full bg-surface-700 rounded-full h-2 overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 rounded-full ${
-                fillPct > 80 ? 'bg-red-500' : fillPct > 50 ? 'bg-amber-400' : 'bg-wasto-500'
-              }`}
-              style={{ width: `${Math.min(100, Math.max(0, fillPct))}%` }}
-            ></div>
-          </div>
-          <div className="flex justify-between text-[10px] text-gray-500 font-mono">
-            <span>HC-SR04 Sensor</span>
-            <span className="text-amber-400 font-semibold">{telemSource}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Category Breakdown & Routing Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Operational Routing Breakdown */}
-        <div className="glass-card p-6 rounded-2xl border border-gray-800 space-y-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-wasto-400"></span>
-              Operational Sorting Chutes
-            </h2>
-            <span className="text-xs font-mono text-gray-400">Policy v1.0</span>
-          </div>
-
-          <div className="space-y-4">
-            {/* Recyclable */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="font-medium text-blue-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-                  Chute 2: Recyclable (Glass, Plastics, Paper, Metal)
-                </span>
-                <span className="font-mono text-white">{recyclableCount}</span>
-              </div>
-              <div className="w-full bg-surface-800 rounded-full h-2.5 overflow-hidden">
-                <div
-                  className="bg-blue-500 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${total > 0 ? (recyclableCount / total) * 100 : 0}%` }}
-                ></div>
-              </div>
-            </div>
-
-            {/* Organic */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="font-medium text-emerald-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                  Chute 1: Organic (Food & Biodegradable Scraps)
-                </span>
-                <span className="font-mono text-white">{organicCount}</span>
-              </div>
-              <div className="w-full bg-surface-800 rounded-full h-2.5 overflow-hidden">
-                <div
-                  className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${total > 0 ? (organicCount / total) * 100 : 0}%` }}
-                ></div>
-              </div>
-            </div>
-
-            {/* Residual */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="font-medium text-amber-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                  Chute 3: Residual / Non-Recyclable (Textiles, Wood, Composites)
-                </span>
-                <span className="font-mono text-white">{routing['Residual'] || 0}</span>
-              </div>
-              <div className="w-full bg-surface-800 rounded-full h-2.5 overflow-hidden">
-                <div
-                  className="bg-amber-500 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${total > 0 ? ((routing['Residual'] || 0) / total) * 100 : 0}%` }}
-                ></div>
-              </div>
-            </div>
-
-            {/* Unknown */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="font-medium text-rose-400 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-                  Manual Review / Uncertain (Abstained)
-                </span>
-                <span className="font-mono text-white">{routing['Unknown / Manual Review'] || 0}</span>
-              </div>
-              <div className="w-full bg-surface-800 rounded-full h-2.5 overflow-hidden">
-                <div
-                  className="bg-rose-500 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${total > 0 ? ((routing['Unknown / Manual Review'] || 0) / total) * 100 : 0}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Hardware Status & Safety Invariant Card */}
-        <div className="glass-card p-6 rounded-2xl border border-gray-800 flex flex-col justify-between space-y-6">
-          <div className="space-y-4">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-wasto-400" />
-              Embedded Hardware Controller
-            </h2>
-            <div className="p-4 rounded-xl bg-surface-800 border border-gray-700/60 space-y-3 text-xs font-mono">
-              <div className="flex justify-between">
-                <span className="text-gray-400">Microcontroller Target:</span>
-                <span className="text-white font-semibold">Arduino Uno R3 (ATmega328P)</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">UART Serial Port:</span>
-                <span className="text-white font-semibold">{hw?.port || 'COM3'} @ 9600 Baud</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Actuation State:</span>
-                <span className={isHwArmed ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
-                  {hw?.state || 'READY'} ({isHwArmed ? 'ARMED' : 'DISARMED'})
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Safety Watchdog:</span>
-                <span className="text-wasto-400">30s Auto-Disarm Active</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl bg-surface-800/60 border border-wasto-500/20 text-xs text-gray-300 space-y-1.5">
-            <div className="flex items-center space-x-1.5 text-wasto-400 font-semibold">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Zero-False-Biodegradability Invariant</span>
-            </div>
-            <p className="text-gray-400 leading-relaxed">
-              Glass, metals, and synthetics are mathematically forbidden from routing to Organic compost chutes,
-              eliminating the legacy prototype bug.
+      {/* Single divided operational metric strip */}
+      <section aria-label="Key operational metrics">
+        <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 lg:divide-x divide-[#DCE3DA]">
+          <div className="p-5 sm:border-b lg:border-b-0 sm:border-r lg:border-r-0 border-[#DCE3DA]">
+            <p className="text-[13px] font-medium text-[#526158]">Classifications</p>
+            <p className="text-[32px] font-semibold leading-[1.15] text-[#18251D] tabular-nums mt-2">
+              {totalPredictions !== null ? totalPredictions.toLocaleString() : '—'}
+            </p>
+            <p className="text-[12px] text-[#526158] mt-1.5">
+              {summary
+                ? `${Object.keys(summary.material_distribution || {}).length} material classes seen`
+                : 'Waiting for backend response'}
             </p>
           </div>
+
+          <div className="p-5 sm:border-b lg:border-b-0 border-[#DCE3DA]">
+            <p className="text-[13px] font-medium text-[#526158]">Completed sorts</p>
+            <p className="text-[32px] font-semibold leading-[1.15] text-[#18251D] tabular-nums mt-2">
+              {totalSorts !== null ? totalSorts.toLocaleString() : '—'}
+            </p>
+            <p className="text-[12px] text-[#526158] mt-1.5">
+              {summary
+                ? modeInfo.isSimulatedHw
+                  ? 'Recorded in software simulator'
+                  : 'Verified flap actuations'
+                : 'Hardware tally unavailable'}
+            </p>
+          </div>
+
+          <div className="p-5 sm:border-r lg:border-r-0 border-[#DCE3DA]">
+            <p className="text-[13px] font-medium text-[#526158]">Review-needed items</p>
+            <p className="text-[32px] font-semibold leading-[1.15] text-[#18251D] tabular-nums mt-2">
+              {needsReviewCount !== null ? needsReviewCount.toLocaleString() : '—'}
+            </p>
+            <p className="text-[12px] text-[#526158] mt-1.5 tabular-nums">
+              {summary && summary.total_predictions > 0
+                ? `${summary.uncertainty_rate_pct.toFixed(1)}% of ${summary.total_predictions} predictions`
+                : 'Held when below 60% confidence'}
+            </p>
+          </div>
+
+          <div className="p-5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[13px] font-medium text-[#526158]">Bin fill</p>
+              {summary?.latest_telemetry && (
+                <span className="text-[12px] font-medium text-[#526158]">
+                  {summary.latest_telemetry.source === 'SIMULATED'
+                    ? 'Simulated sensor'
+                    : 'Ultrasonic'}
+                </span>
+              )}
+            </div>
+            <p className="text-[32px] font-semibold leading-[1.15] text-[#18251D] tabular-nums mt-2">
+              {fillPct !== null ? `${fillPct.toFixed(1)}%` : '—'}
+            </p>
+            {fillPct !== null && summary?.latest_telemetry ? (
+              <div className="mt-2 space-y-1.5">
+                <div className="w-full h-1.5 rounded-full bg-[#EEF2EB] overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, fillPct))}%`,
+                      backgroundColor: fillPct > 85 ? '#B33D35' : '#245C3B',
+                    }}
+                  />
+                </div>
+                <p className="text-[12px] text-[#526158] tabular-nums">
+                  Clearance {summary.latest_telemetry.distance_cm.toFixed(1)} cm
+                </p>
+              </div>
+            ) : (
+              <p className="text-[12px] text-[#526158] mt-1.5">
+                Sensor reading unavailable
+              </p>
+            )}
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* 7:5 Split: Sorting Activity + System Status */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className="lg:col-span-7 bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 pb-4 border-b border-[#DCE3DA]">
+            <h2 className="text-[20px] font-semibold text-[#18251D]">
+              Sorting activity
+            </h2>
+            <p className="text-[13px] text-[#526158] tabular-nums">
+              {summary
+                ? `Out of ${summary.total_predictions.toLocaleString()} classifications`
+                : 'No routing breakdown loaded'}
+            </p>
+          </div>
+
+          <div className="divide-y divide-[#DCE3DA]">
+            {ROUTING_ORDER.map((categoryKey) => {
+              const meta = ROUTING_CATEGORY_META[categoryKey];
+              const count = summary
+                ? categoryKey === 'Unknown / Manual Review'
+                  ? (summary.routing_distribution?.[categoryKey] ??
+                    summary.uncertain_predictions_count ??
+                    0)
+                  : (summary.routing_distribution?.[categoryKey] ?? 0)
+                : null;
+              const pct =
+                count !== null && rowTotal > 0
+                  ? Math.round((count / rowTotal) * 100)
+                  : null;
+
+              return (
+                <div key={categoryKey} className="py-4 first:pt-4 last:pb-1">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span
+                        className="w-7 h-7 rounded-[8px] border flex items-center justify-center shrink-0"
+                        style={{
+                          borderColor: '#DCE3DA',
+                          color: meta.barColor,
+                          backgroundColor: '#F7F8F4',
+                        }}
+                      >
+                        {getCategoryIcon(categoryKey, 15)}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-medium text-[#18251D]">
+                          {meta.label}
+                        </p>
+                        <p className="text-[12px] text-[#526158] truncate">
+                          {meta.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0 tabular-nums">
+                      <span className="text-[16px] font-semibold text-[#18251D]">
+                        {count !== null ? count.toLocaleString() : '—'}
+                      </span>
+                      <span className="text-[13px] text-[#526158] ml-2">
+                        {pct !== null ? `${pct}%` : '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 w-full h-2 rounded-full bg-[#EEF2EB] overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${pct ?? 0}%`,
+                        backgroundColor: meta.barColor,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="lg:col-span-5 bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6">
+          <div className="pb-4 border-b border-[#DCE3DA]">
+            <h2 className="text-[20px] font-semibold text-[#18251D]">
+              System status
+            </h2>
+            <p className="text-[13px] text-[#526158] mt-1">
+              Current runtime and safety configuration
+            </p>
+          </div>
+
+          <dl className="divide-y divide-[#DCE3DA] text-[14px]">
+            <div className="py-3 flex items-center justify-between gap-4">
+              <dt className="text-[#526158]">Model</dt>
+              <dd className="font-medium text-[#18251D] text-right">
+                {modelStatusLabel}
+              </dd>
+            </div>
+            <div className="py-3 flex items-center justify-between gap-4">
+              <dt className="text-[#526158]">Camera</dt>
+              <dd className="font-medium text-[#18251D] text-right">
+                Live monitor (browser feed)
+              </dd>
+            </div>
+            <div className="py-3 flex items-center justify-between gap-4">
+              <dt className="text-[#526158]">Hardware</dt>
+              <dd className="font-medium text-[#18251D] text-right">
+                {hardwareStatusLabel}
+              </dd>
+            </div>
+            <div className="py-3 flex items-center justify-between gap-4">
+              <dt className="text-[#526158]">Tracked batches</dt>
+              <dd className="font-medium text-[#18251D] tabular-nums text-right">
+                {summary ? summary.total_waste_batches.toLocaleString() : '—'}
+              </dd>
+            </div>
+            <div className="py-3 flex items-center justify-between gap-4">
+              <dt className="text-[#526158]">Last update</dt>
+              <dd className="font-medium text-[#18251D] tabular-nums text-right">
+                {formatTimestamp(summary?.timestamp)}
+              </dd>
+            </div>
+          </dl>
+
+          <div className="pt-3 mt-1 border-t border-[#DCE3DA]">
+            <button
+              type="button"
+              onClick={() => setDeviceDetailsOpen((prev) => !prev)}
+              aria-expanded={deviceDetailsOpen}
+              className="w-full min-h-[44px] flex items-center justify-between px-3 rounded-[8px] text-[14px] font-medium text-[#18251D] bg-[#F7F8F4] hover:bg-[#EEF2EB] border border-[#DCE3DA] transition-colors"
+            >
+              <span>Device details</span>
+              <ChevronDown
+                size={16}
+                strokeWidth={1.85}
+                className={`text-[#526158] transition-transform ${
+                  deviceDetailsOpen ? 'rotate-180' : ''
+                }`}
+                aria-hidden="true"
+              />
+            </button>
+
+            {deviceDetailsOpen && (
+              <dl className="mt-3 p-3.5 rounded-[8px] bg-[#EEF2EB]/70 border border-[#DCE3DA] space-y-2 text-[13px]">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#526158]">Serial port</dt>
+                  <dd className="font-mono text-[#18251D]">
+                    {modeInfo.hwPort || 'Unavailable'}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#526158]">Baud rate</dt>
+                  <dd className="font-mono text-[#18251D]">9600 bps</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#526158]">Board</dt>
+                  <dd className="font-medium text-[#18251D]">Arduino Uno R3</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#526158]">Safety watchdog</dt>
+                  <dd className="font-medium text-[#18251D]">30s auto-disarm</dd>
+                </div>
+              </dl>
+            )}
+          </div>
+
+          <p className="text-[13px] text-[#526158] leading-[1.5] mt-4">
+            Items below 60% confidence are held for review, and non-biodegradable
+            materials are blocked from compost routing.{' '}
+            <button
+              type="button"
+              onClick={() => onNavigate('architecture')}
+              className="text-[#245C3B] font-medium hover:underline underline-offset-4"
+            >
+              View model details
+            </button>
+          </p>
+        </div>
+      </section>
+
+      {/* Recent classifications list */}
+      <section className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-[#DCE3DA]">
+          <div>
+            <h2 className="text-[20px] font-semibold text-[#18251D]">
+              Recent events
+            </h2>
+            <p className="text-[13px] text-[#526158] mt-0.5">
+              Latest recorded classification events from the active store
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('history')}
+            className="inline-flex items-center gap-1.5 text-[14px] font-medium text-[#245C3B] hover:text-[#19452B] self-start sm:self-auto"
+          >
+            <span>View full history</span>
+            <ArrowRight size={15} strokeWidth={1.9} aria-hidden="true" />
+          </button>
+        </div>
+
+        {historyLoading ? (
+          <div className="py-8 text-[14px] text-[#526158]">
+            Loading recent classifications…
+          </div>
+        ) : historyUnavailable ? (
+          <div className="pt-4">
+            <StatusNotice
+              tone="info"
+              title="Classification log requires a connected API"
+              action={
+                <button
+                  type="button"
+                  onClick={() => onNavigate('classify')}
+                  className="px-3.5 min-h-[40px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] text-white text-[13px] font-medium transition-colors"
+                >
+                  Open classify
+                </button>
+              }
+            >
+              Saved events will appear here once connected to the backend database.
+            </StatusNotice>
+          </div>
+        ) : recentItems.length === 0 ? (
+          <div className="py-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <p className="text-[15px] font-medium text-[#18251D]">
+                No classifications recorded yet
+              </p>
+              <p className="text-[14px] text-[#526158] mt-0.5">
+                Start by uploading an image or trying one of the sample materials.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('classify')}
+              className="px-4 min-h-[44px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] text-white text-[14px] font-medium transition-colors self-start sm:self-auto"
+            >
+              Classify first item
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto -mx-2 px-2">
+            <table className="w-full text-left border-collapse mt-1">
+              <thead>
+                <tr className="border-b border-[#DCE3DA] text-[12px] font-semibold uppercase tracking-[0.04em] text-[#526158]">
+                  <th className="py-3 pr-4">Material</th>
+                  <th className="py-3 pr-4">Destination</th>
+                  <th className="py-3 pr-4">Confidence</th>
+                  <th className="py-3 pr-4 hidden sm:table-cell">Item</th>
+                  <th className="py-3 text-right">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#DCE3DA] text-[14px]">
+                {recentItems.map((row) => (
+                  <tr key={row.id || row.prediction_id || row.timestamp}>
+                    <td className="py-3.5 pr-4 font-medium text-[#18251D]">
+                      {row.is_uncertain ? 'Uncertain item' : row.material_label}
+                    </td>
+                    <td className="py-3.5 pr-4">
+                      <CategoryBadge category={row.routing_category} size="sm" />
+                    </td>
+                    <td className="py-3.5 pr-4 font-medium text-[#18251D] tabular-nums">
+                      {(row.confidence * 100).toFixed(1)}%
+                    </td>
+                    <td className="py-3.5 pr-4 text-[#526158] hidden sm:table-cell max-w-[200px] truncate">
+                      {row.filename || 'Captured frame'}
+                    </td>
+                    <td className="py-3.5 text-right text-[#526158] tabular-nums whitespace-nowrap">
+                      {formatRecentDate(row.timestamp)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 };

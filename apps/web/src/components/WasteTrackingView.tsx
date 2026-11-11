@@ -1,408 +1,715 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Truck,
-  Plus,
-  CheckCircle2,
-  Clock,
   MapPin,
+  Plus,
+  Search,
   User,
-  FileText,
-  AlertCircle,
-  ArrowRight,
-  Boxes,
 } from 'lucide-react';
-import { fetchWasteBatches, fetchBatchDetails, createWasteBatch, addTrackingEvent } from '../api/client';
-import { WasteBatch, BatchDetails } from '../types';
+import { BatchDetails, WasteBatch } from '../types';
+import {
+  addTrackingEvent,
+  createWasteBatch,
+  fetchBatchDetails,
+  fetchWasteBatches,
+} from '../api/client';
+import {
+  getStageMeta,
+  LIFECYCLE_STAGES_META,
+  OperationalModeInfo,
+} from '../theme/tokens';
+import { ModalDialog } from './ui/ModalDialog';
+import { PageHeader } from './ui/PageHeader';
+import { StatusNotice } from './ui/StatusNotice';
 
-export const WasteTrackingView: React.FC = () => {
+interface WasteTrackingViewProps {
+  modeInfo: OperationalModeInfo;
+  onDataChange: () => void;
+}
+
+const LOGGABLE_STAGES = LIFECYCLE_STAGES_META.filter((s) => s.key !== 'CREATED');
+
+function getNextSuggestedStage(currentStatus: string): string {
+  const order = [
+    'CREATED',
+    'PICKUP_SCHEDULED',
+    'COLLECTED',
+    'AT_FACILITY',
+    'SORTED',
+    'PROCESSED',
+  ];
+  const idx = order.indexOf(currentStatus);
+  if (idx === -1) return 'AT_FACILITY';
+  if (idx < order.length - 1) return order[idx + 1];
+  return 'PROCESSED';
+}
+
+function formatDateTime(ts: number): string {
+  return new Date(ts * 1000).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export const WasteTrackingView: React.FC<WasteTrackingViewProps> = ({
+  modeInfo,
+  onDataChange,
+}) => {
   const [batches, setBatches] = useState<WasteBatch[]>([]);
+  const [batchesLoading, setBatchesLoading] = useState(true);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
-  const [batchDetails, setBatchDetails] = useState<BatchDetails | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showEventModal, setShowEventModal] = useState(false);
+  const [selectedDetails, setSelectedDetails] = useState<BatchDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
 
-  // New batch form state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [stageFilter, setStageFilter] = useState<string>('ALL');
+
+  // Register batch modal state
+  const [createOpen, setCreateOpen] = useState(false);
   const [newOrg, setNewOrg] = useState('');
-  const [newCategory, setNewCategory] = useState('Mixed Recyclables');
-  const [newKg, setNewKg] = useState('100');
+  const [newCategory, setNewCategory] = useState('Recyclable');
+  const [newWeight, setNewWeight] = useState('');
   const [newNotes, setNewNotes] = useState('');
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  // New event form state
-  const [nextStage, setNextStage] = useState('PICKUP_SCHEDULED');
+  // Log stage modal state
+  const [eventOpen, setEventOpen] = useState(false);
+  const [eventStage, setEventStage] = useState('COLLECTED');
   const [eventActor, setEventActor] = useState('');
   const [eventLocation, setEventLocation] = useState('');
   const [eventNotes, setEventNotes] = useState('');
+  const [eventBusy, setEventBusy] = useState(false);
+  const [eventError, setEventError] = useState<string | null>(null);
 
-  const loadBatches = async () => {
-    setIsLoading(true);
+  const loadBatches = useCallback(async (preferredId?: string | null) => {
+    setBatchesLoading(true);
     try {
       const list = await fetchWasteBatches();
       setBatches(list);
-      if (list.length > 0 && !selectedBatchId) {
-        setSelectedBatchId(list[0].id);
-      }
-    } catch (e) {
-      // Handled in client
+      setSelectedBatchId((prev) => {
+        if (preferredId && list.some((b) => b.id === preferredId)) return preferredId;
+        if (prev && list.some((b) => b.id === prev)) return prev;
+        return list.length > 0 ? list[0].id : null;
+      });
     } finally {
-      setIsLoading(false);
+      setBatchesLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadBatches();
   }, []);
 
   useEffect(() => {
-    if (!selectedBatchId) return;
-    fetchBatchDetails(selectedBatchId)
-      .then((res) => setBatchDetails(res))
-      .catch(() => {});
-  }, [selectedBatchId]);
+    loadBatches();
+  }, [loadBatches]);
 
-  const handleCreateBatch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newOrg) return;
-
+  const loadBatchDetails = useCallback(async (batchId: string) => {
+    setDetailsLoading(true);
     try {
-      await createWasteBatch({
-        source_organization: newOrg,
+      const details = await fetchBatchDetails(batchId);
+      setSelectedDetails(details);
+    } catch {
+      setSelectedDetails(null);
+    } finally {
+      setDetailsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedBatchId) {
+      loadBatchDetails(selectedBatchId);
+    } else {
+      setSelectedDetails(null);
+    }
+  }, [selectedBatchId, loadBatchDetails]);
+
+  const filteredBatches = batches.filter((b) => {
+    const q = searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !q ||
+      b.id.toLowerCase().includes(q) ||
+      b.source_organization.toLowerCase().includes(q) ||
+      b.material_category.toLowerCase().includes(q);
+    const matchesStage = stageFilter === 'ALL' || b.status === stageFilter;
+    return matchesSearch && matchesStage;
+  });
+
+  const handleOpenCreateModal = () => {
+    setCreateError(null);
+    setCreateOpen(true);
+  };
+
+  const handleCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newOrg.trim()) {
+      setCreateError('Please enter the source organization name.');
+      return;
+    }
+    const parsedWeight = newWeight.trim() ? Number(newWeight) : undefined;
+    if (
+      parsedWeight !== undefined &&
+      (Number.isNaN(parsedWeight) || parsedWeight <= 0)
+    ) {
+      setCreateError('Estimated weight must be a positive number.');
+      return;
+    }
+
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const created = await createWasteBatch({
+        source_organization: newOrg.trim(),
         material_category: newCategory,
-        estimated_kg: parseFloat(newKg) || 0,
-        notes: newNotes,
+        estimated_kg: parsedWeight,
+        notes: newNotes.trim() || undefined,
       });
-      setShowCreateModal(false);
+      setCreateOpen(false);
       setNewOrg('');
+      setNewWeight('');
       setNewNotes('');
-      await loadBatches();
-    } catch (err: any) {
-      alert(err.message || 'Failed to create batch');
+      await loadBatches(created?.id ?? null);
+      onDataChange();
+    } catch (err) {
+      setCreateError(
+        err instanceof Error ? err.message : 'Unable to register batch.'
+      );
+    } finally {
+      setCreateBusy(false);
     }
   };
 
-  const handleAddEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedBatchId || !eventActor) return;
+  const handleOpenEventModal = () => {
+    if (!selectedDetails) return;
+    setEventError(null);
+    setEventStage(getNextSuggestedStage(selectedDetails.status));
+    setEventOpen(true);
+  };
 
+  const handleEventSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBatchId) return;
+    if (!eventActor.trim()) {
+      setEventError('Please enter the operator or handler name.');
+      return;
+    }
+
+    setEventBusy(true);
+    setEventError(null);
     try {
       await addTrackingEvent(selectedBatchId, {
-        stage: nextStage,
-        actor: eventActor,
-        location: eventLocation,
-        notes: eventNotes,
+        stage: eventStage,
+        actor: eventActor.trim(),
+        location: eventLocation.trim() || undefined,
+        notes: eventNotes.trim() || undefined,
       });
-      setShowEventModal(false);
+      setEventOpen(false);
       setEventActor('');
       setEventLocation('');
       setEventNotes('');
-      // Reload details and batch list
-      const updated = await fetchBatchDetails(selectedBatchId);
-      setBatchDetails(updated);
-      await loadBatches();
-    } catch (err: any) {
-      alert(err.message || 'Failed to add event');
+      await loadBatches(selectedBatchId);
+      await loadBatchDetails(selectedBatchId);
+      onDataChange();
+    } catch (err) {
+      setEventError(
+        err instanceof Error ? err.message : 'Unable to save stage update.'
+      );
+    } finally {
+      setEventBusy(false);
     }
   };
 
-  // Helper for lifecycle timeline steps
-  const LIFECYCLE_STEPS = [
-    { key: 'CREATED', label: '1. Registered at Source' },
-    { key: 'PICKUP_SCHEDULED', label: '2. Scheduled Pickup' },
-    { key: 'COLLECTED', label: '3. Collected & Weighed' },
-    { key: 'AT_FACILITY', label: '4. Arrived at Facility' },
-    { key: 'SORTED', label: '5. Optically Segregated' },
-    { key: 'PROCESSED', label: '6. Final Disposition' },
-  ];
+  const showDemoNotice =
+    !modeInfo.apiReachable || Boolean(batches.some((b) => b.is_demo_fixture));
 
   return (
-    <div className="space-y-6 animate-fade-slide">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Truck className="w-6 h-6 text-wasto-400" />
-            Source-to-Recycling Lifecycle Tracking
-          </h2>
-          <p className="text-xs text-gray-400 mt-1">
-            End-to-end municipal batch provenance: Source Dustbins → Transport → Facility Sorting → Recycling Units.
-          </p>
+    <div className="space-y-6">
+      <PageHeader
+        title="Waste tracking"
+        description="Follow collected waste batches from pickup scheduling through sorting and processing."
+        modeInfo={modeInfo}
+        actions={
+          <button
+            type="button"
+            onClick={handleOpenCreateModal}
+            className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] text-white text-[14px] font-medium transition-colors"
+          >
+            <Plus size={16} strokeWidth={2} aria-hidden="true" />
+            <span>Register batch</span>
+          </button>
+        }
+      />
+
+      {showDemoNotice && (
+        <StatusNotice tone="info">
+          Showing deterministic sample waste batches because the backend API is
+          currently offline. Creating or updating batches requires an active API
+          connection.
+        </StatusNotice>
+      )}
+
+      {/* Search and Stage Filter Bar */}
+      <div className="bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="relative flex-1">
+          <Search
+            size={16}
+            strokeWidth={1.85}
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#526158] pointer-events-none"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by batch ID, organization, or material…"
+            aria-label="Search batches"
+            className="w-full min-h-[44px] pl-10 pr-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D] placeholder:text-[#526158]"
+          />
         </div>
 
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 rounded-xl bg-wasto-500 text-surface-900 font-semibold text-xs hover:bg-wasto-400 transition-all flex items-center space-x-1.5 shadow-lg shadow-wasto-500/20 active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Register New Batch</span>
-        </button>
-      </div>
+        <div className="flex items-center gap-2.5">
+          <label htmlFor="stage-filter" className="text-[13px] font-medium text-[#526158] shrink-0">
+            Stage
+          </label>
+          <select
+            id="stage-filter"
+            value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value)}
+            className="min-h-[44px] px-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+          >
+            <option value="ALL">All stages</option>
+            {LIFECYCLE_STAGES_META.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+            <option value="IN_TRANSIT">In transit</option>
+          </select>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Batches List (5 cols) */}
-        <div className="lg:col-span-5 glass-card rounded-2xl border border-gray-800 p-4 space-y-3">
-          <div className="flex justify-between items-center px-2 py-1 text-xs font-semibold text-gray-400">
-            <span>Registered Batches ({batches.length})</span>
-            <span className="font-mono text-[10px]">Persistent SQLite</span>
-          </div>
-
-          <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-            {batches.map((batch) => {
-              const isSelected = selectedBatchId === batch.id;
-              return (
-                <div
-                  key={batch.id}
-                  onClick={() => setSelectedBatchId(batch.id)}
-                  className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
-                    isSelected
-                      ? 'bg-wasto-500/15 border-wasto-500/50 text-white shadow-md'
-                      : 'bg-surface-800 border-gray-700/70 text-gray-300 hover:bg-surface-700'
-                  }`}
-                >
-                  <div className="flex justify-between items-start">
-                    <span className="font-mono text-xs font-bold text-wasto-400">{batch.id}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface-900 border border-gray-700 font-semibold text-gray-300">
-                      {batch.status}
-                    </span>
-                  </div>
-                  <h4 className="text-sm font-semibold mt-1 truncate">{batch.source_organization}</h4>
-                  <div className="flex justify-between text-xs text-gray-400 mt-2">
-                    <span>{batch.material_category}</span>
-                    <span className="font-mono">{batch.estimated_kg ? `${batch.estimated_kg} kg` : 'Tare pending'}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Right Column: Batch Details & Chronological Timeline (7 cols) */}
-        <div className="lg:col-span-7 space-y-4">
-          {batchDetails ? (
-            <div className="glass-card rounded-2xl p-6 border border-gray-800 space-y-6">
-              {/* Batch Header */}
-              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-800 pb-4">
-                <div>
-                  <span className="font-mono text-xs text-wasto-400 font-bold">{batchDetails.id}</span>
-                  <h3 className="text-xl font-bold text-white mt-0.5">{batchDetails.source_organization}</h3>
-                  <p className="text-xs text-gray-400 mt-1">{batchDetails.notes || 'No notes provided'}</p>
-                </div>
-                <button
-                  onClick={() => setShowEventModal(true)}
-                  className="px-3.5 py-2 rounded-xl bg-surface-800 hover:bg-surface-700 border border-gray-700 text-xs font-semibold text-wasto-400 flex items-center space-x-1.5 transition-all"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Log Transition Event</span>
-                </button>
-              </div>
-
-              {/* Progress Stepper */}
-              <div className="space-y-1.5">
-                <span className="text-xs font-semibold text-gray-400">Lifecycle Progress:</span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {LIFECYCLE_STEPS.map((step) => {
-                    const isPassedOrCurrent = batchDetails.timeline.some((e) => e.stage === step.key);
-                    return (
-                      <div
-                        key={step.key}
-                        className={`p-2 rounded-lg text-[11px] border flex items-center space-x-1.5 ${
-                          isPassedOrCurrent
-                            ? 'bg-wasto-500/10 border-wasto-500/30 text-wasto-300'
-                            : 'bg-surface-800/40 border-gray-800 text-gray-500'
-                        }`}
-                      >
-                        <CheckCircle2
-                          className={`w-3.5 h-3.5 shrink-0 ${
-                            isPassedOrCurrent ? 'text-wasto-400' : 'text-gray-600'
-                          }`}
-                        />
-                        <span className="truncate">{step.label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Chronological Event History */}
-              <div className="space-y-3">
-                <span className="text-xs font-semibold text-gray-400">Audit Timeline ({batchDetails.timeline.length} events):</span>
-                <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-800">
-                  {batchDetails.timeline.map((evt, idx) => (
-                    <div key={idx} className="relative space-y-1">
-                      <div className="absolute -left-6 top-1.5 w-3 h-3 rounded-full bg-wasto-500 ring-4 ring-surface-900"></div>
-                      <div className="flex flex-wrap items-baseline justify-between gap-1">
-                        <span className="text-xs font-bold text-white font-mono">{evt.stage}</span>
-                        <span className="text-[10px] text-gray-500 font-mono">
-                          {new Date(evt.timestamp * 1000).toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-300">{evt.notes}</p>
-                      <div className="flex flex-wrap gap-3 text-[11px] text-gray-400 pt-0.5">
-                        <span className="flex items-center gap-1">
-                          <User className="w-3 h-3 text-gray-500" />
-                          {evt.actor}
-                        </span>
-                        {evt.location && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-gray-500" />
-                            {evt.location}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="glass-card rounded-2xl p-12 text-center text-gray-500">
-              Select a batch from the left to view tracking history.
-            </div>
+          {(searchQuery || stageFilter !== 'ALL') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setStageFilter('ALL');
+              }}
+              className="px-3 min-h-[44px] rounded-[8px] border border-[#DCE3DA] hover:bg-[#EEF2EB] text-[13px] font-medium text-[#526158] hover:text-[#18251D]"
+            >
+              Clear
+            </button>
           )}
         </div>
       </div>
 
-      {/* Modal: Create Batch */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-950/80 backdrop-blur-sm">
-          <div className="glass-card rounded-2xl p-6 border border-gray-700 max-w-md w-full space-y-4">
-            <h3 className="text-lg font-bold text-white">Register Source Waste Batch</h3>
-            <form onSubmit={handleCreateBatch} className="space-y-3 text-xs">
-              <div>
-                <label className="text-gray-400 block mb-1">Source Organization / Campus Zone:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. IIIT Delhi — Student Hostel Block"
-                  value={newOrg}
-                  onChange={(e) => setNewOrg(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-800 border border-gray-700 text-white"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-gray-400 block mb-1">Category:</label>
-                  <select
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-surface-800 border border-gray-700 text-white"
-                  >
-                    <option value="Mixed Recyclables">Mixed Recyclables</option>
-                    <option value="Organic Waste">Organic Waste</option>
-                    <option value="Paper & Cardboard">Paper & Cardboard</option>
-                    <option value="Plastics">Plastics</option>
-                    <option value="Residual Waste">Residual Waste</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-gray-400 block mb-1">Estimated Quantity (kg):</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={newKg}
-                    onChange={(e) => setNewKg(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-surface-800 border border-gray-700 text-white"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-gray-400 block mb-1">Collection Notes:</label>
-                <textarea
-                  rows={2}
-                  placeholder="e.g. Segregated source bin flagged 80% full"
-                  value={newNotes}
-                  onChange={(e) => setNewNotes(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-800 border border-gray-700 text-white"
-                ></textarea>
-              </div>
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 rounded-lg bg-surface-800 text-gray-300"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg bg-wasto-500 text-surface-900 font-semibold"
-                >
-                  Save Batch
-                </button>
-              </div>
-            </form>
+      {/* Main Split: Batch Selector List + Chronological Timeline */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className="lg:col-span-5 bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[#DCE3DA] flex items-center justify-between">
+            <h2 className="text-[16px] font-semibold text-[#18251D]">
+              Waste batches
+            </h2>
+            <span className="text-[13px] text-[#526158] tabular-nums">
+              {filteredBatches.length} shown
+            </span>
           </div>
-        </div>
-      )}
 
-      {/* Modal: Add Tracking Event */}
-      {showEventModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-950/80 backdrop-blur-sm">
-          <div className="glass-card rounded-2xl p-6 border border-gray-700 max-w-md w-full space-y-4">
-            <h3 className="text-lg font-bold text-white">Log Lifecycle Transition</h3>
-            <form onSubmit={handleAddEvent} className="space-y-3 text-xs">
-              <div>
-                <label className="text-gray-400 block mb-1">Target Stage:</label>
-                <select
-                  value={nextStage}
-                  onChange={(e) => setNextStage(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-800 border border-gray-700 text-white font-mono"
-                >
-                  <option value="PICKUP_SCHEDULED">PICKUP_SCHEDULED</option>
-                  <option value="COLLECTED">COLLECTED</option>
-                  <option value="AT_FACILITY">AT_FACILITY</option>
-                  <option value="SORTED">SORTED</option>
-                  <option value="PROCESSED">PROCESSED</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-gray-400 block mb-1">Actor (Driver / Inspector / Operator):</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Driver K. Singh (Van DL-1Z-9821)"
-                  value={eventActor}
-                  onChange={(e) => setEventActor(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-800 border border-gray-700 text-white"
-                />
-              </div>
-              <div>
-                <label className="text-gray-400 block mb-1">Location Details:</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Okhla MRF Facility Gate 2"
-                  value={eventLocation}
-                  onChange={(e) => setEventLocation(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-800 border border-gray-700 text-white"
-                />
-              </div>
-              <div>
-                <label className="text-gray-400 block mb-1">Transition Notes:</label>
-                <textarea
-                  rows={2}
-                  placeholder="e.g. Tare weight verified at weighbridge"
-                  value={eventNotes}
-                  onChange={(e) => setNewNotes(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-800 border border-gray-700 text-white"
-                ></textarea>
-              </div>
-              <div className="flex justify-end space-x-2 pt-2">
+          {batchesLoading ? (
+            <div className="p-6 text-[14px] text-[#526158]">Loading batches…</div>
+          ) : filteredBatches.length === 0 ? (
+            <div className="p-6 space-y-3">
+              <p className="text-[14px] text-[#18251D] font-medium">
+                {batches.length === 0
+                  ? 'No batches registered yet'
+                  : 'No batches match the active filters'}
+              </p>
+              <p className="text-[13px] text-[#526158]">
+                {batches.length === 0
+                  ? 'Register a collection batch to begin custody tracking.'
+                  : 'Adjust your search query or stage filter.'}
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[#DCE3DA]">
+              {filteredBatches.map((batch) => {
+                const isSelected = batch.id === selectedBatchId;
+                const stageMeta = getStageMeta(batch.status);
+                return (
+                  <button
+                    key={batch.id}
+                    type="button"
+                    onClick={() => setSelectedBatchId(batch.id)}
+                    aria-pressed={isSelected}
+                    className={`w-full text-left px-5 py-4 min-h-[44px] transition-colors flex flex-col gap-2 border-l-4 ${
+                      isSelected
+                        ? 'bg-[#E5EFE4]/70 border-l-[#245C3B]'
+                        : 'bg-[#FFFFFF] border-l-transparent hover:bg-[#F7F8F4]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[15px] font-semibold text-[#18251D]">
+                        {batch.source_organization}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 text-[12px] font-medium rounded-[6px] border whitespace-nowrap ${stageMeta.badgeClasses}`}
+                      >
+                        {stageMeta.label}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-[#526158]">
+                      <span className="font-mono text-[12px] text-[#526158]">
+                        {batch.id}
+                      </span>
+                      <span className="tabular-nums">
+                        {batch.material_category}
+                        {batch.estimated_kg !== null
+                          ? ` · ${batch.estimated_kg} kg`
+                          : ''}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Selected Batch Detail & Chronological Timeline */}
+        <div className="lg:col-span-7 bg-[#FFFFFF] border border-[#DCE3DA] rounded-[12px] p-5 sm:p-6">
+          {!selectedBatchId ? (
+            <div className="py-10 text-center text-[14px] text-[#526158]">
+              Select a batch from the list to review its custody timeline.
+            </div>
+          ) : detailsLoading && !selectedDetails ? (
+            <div className="py-10 text-[14px] text-[#526158]">
+              Loading batch timeline…
+            </div>
+          ) : selectedDetails ? (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pb-5 border-b border-[#DCE3DA]">
+                <div className="space-y-1.5 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[12px] text-[#526158] bg-[#EEF2EB] px-2 py-0.5 rounded-[6px]">
+                      {selectedDetails.id}
+                    </span>
+                    <span
+                      className={`px-2.5 py-0.5 text-[12px] font-medium rounded-[6px] border ${
+                        getStageMeta(selectedDetails.status).badgeClasses
+                      }`}
+                    >
+                      {getStageMeta(selectedDetails.status).label}
+                    </span>
+                  </div>
+                  <h2 className="text-[22px] font-semibold text-[#18251D] leading-snug">
+                    {selectedDetails.source_organization}
+                  </h2>
+                  <p className="text-[14px] text-[#526158] tabular-nums">
+                    {selectedDetails.material_category}
+                    {selectedDetails.estimated_kg !== null
+                      ? ` · Estimated ${selectedDetails.estimated_kg} kg`
+                      : ''}
+                    {` · Updated ${formatDateTime(selectedDetails.updated_at)}`}
+                  </p>
+                  {selectedDetails.notes && (
+                    <p className="text-[14px] text-[#18251D] pt-1">
+                      {selectedDetails.notes}
+                    </p>
+                  )}
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => setShowEventModal(false)}
-                  className="px-4 py-2 rounded-lg bg-surface-800 text-gray-300"
+                  onClick={handleOpenEventModal}
+                  className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] text-white text-[14px] font-medium transition-colors shrink-0 self-start"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg bg-wasto-500 text-surface-900 font-semibold"
-                >
-                  Record Event
+                  <span>Log stage update</span>
                 </button>
               </div>
-            </form>
-          </div>
+
+              {/* Chronological Custody Timeline */}
+              <div>
+                <h3 className="text-[16px] font-semibold text-[#18251D] mb-4">
+                  Custody timeline
+                </h3>
+
+                {selectedDetails.timeline.length === 0 ? (
+                  <p className="text-[14px] text-[#526158]">
+                    No lifecycle events logged for this batch yet.
+                  </p>
+                ) : (
+                  <ol className="relative space-y-5 pl-6 border-l border-[#DCE3DA] ml-2">
+                    {selectedDetails.timeline.map((event) => {
+                      const stMeta = getStageMeta(event.stage);
+                      return (
+                        <li key={event.id} className="relative">
+                          <span
+                            className="absolute -left-[29px] top-1.5 w-2.5 h-2.5 rounded-full bg-[#245C3B] ring-4 ring-[#FFFFFF]"
+                            aria-hidden="true"
+                          />
+                          <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 text-[12px] font-medium rounded-[6px] border w-fit ${stMeta.badgeClasses}`}
+                            >
+                              {stMeta.label}
+                            </span>
+                            <time className="text-[12px] text-[#526158] tabular-nums">
+                              {formatDateTime(event.timestamp)}
+                            </time>
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-[#526158]">
+                            <span className="inline-flex items-center gap-1.5 text-[#18251D] font-medium">
+                              <User size={13} strokeWidth={1.85} aria-hidden="true" />
+                              {event.actor}
+                            </span>
+                            {event.location && (
+                              <span className="inline-flex items-center gap-1.5">
+                                <MapPin size={13} strokeWidth={1.85} aria-hidden="true" />
+                                {event.location}
+                              </span>
+                            )}
+                          </div>
+
+                          {event.notes && (
+                            <p className="text-[14px] text-[#18251D] leading-[1.5] mt-1.5">
+                              {event.notes}
+                            </p>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+              </div>
+            </div>
+          ) : (
+            <StatusNotice tone="error">
+              Unable to load details for this waste batch.
+            </StatusNotice>
+          )}
         </div>
-      )}
+      </div>
+
+      {/* Register Batch Modal */}
+      <ModalDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Register waste batch"
+        description="Create a collection record to track a batch across facility sorting and processing."
+        titleId="register-batch-title"
+      >
+        <form onSubmit={handleCreateSubmit} className="space-y-4">
+          {createError && (
+            <StatusNotice tone="error" role="alert">
+              {createError}
+            </StatusNotice>
+          )}
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="batch-org-input"
+              className="block text-[13px] font-medium text-[#18251D]"
+            >
+              Source organization
+            </label>
+            <input
+              id="batch-org-input"
+              type="text"
+              value={newOrg}
+              onChange={(e) => setNewOrg(e.target.value)}
+              placeholder="e.g. GreenCycle Logistics Pvt Ltd"
+              required
+              className="w-full min-h-[44px] px-3.5 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label
+                htmlFor="batch-category-select"
+                className="block text-[13px] font-medium text-[#18251D]"
+              >
+                Material stream
+              </label>
+              <select
+                id="batch-category-select"
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                className="w-full min-h-[44px] px-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+              >
+                <option value="Recyclable">Recyclable</option>
+                <option value="Organic">Organic</option>
+                <option value="Residual">Residual</option>
+                <option value="Mixed Municipal">Mixed municipal</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="batch-weight-input"
+                className="block text-[13px] font-medium text-[#18251D]"
+              >
+                Estimated weight (kg)
+              </label>
+              <input
+                id="batch-weight-input"
+                type="number"
+                step="0.1"
+                min="0.1"
+                value={newWeight}
+                onChange={(e) => setNewWeight(e.target.value)}
+                placeholder="e.g. 240"
+                className="w-full min-h-[44px] px-3.5 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D] tabular-nums"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="batch-notes-input"
+              className="block text-[13px] font-medium text-[#18251D]"
+            >
+              Notes
+            </label>
+            <textarea
+              id="batch-notes-input"
+              rows={3}
+              value={newNotes}
+              onChange={(e) => setNewNotes(e.target.value)}
+              placeholder="Collection zone, container condition, or special instructions…"
+              className="w-full p-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+            />
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-2.5">
+            <button
+              type="button"
+              onClick={() => setCreateOpen(false)}
+              className="px-4 min-h-[44px] rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] hover:bg-[#EEF2EB] text-[14px] font-medium text-[#18251D]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createBusy}
+              className="px-5 min-h-[44px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] disabled:bg-[#DCE3DA] disabled:text-[#526158] text-white text-[14px] font-medium"
+            >
+              {createBusy ? 'Saving…' : 'Create batch'}
+            </button>
+          </div>
+        </form>
+      </ModalDialog>
+
+      {/* Log Stage Update Modal */}
+      <ModalDialog
+        open={eventOpen}
+        onClose={() => setEventOpen(false)}
+        title="Log stage update"
+        description={
+          selectedDetails
+            ? `Record a custody milestone for ${selectedDetails.source_organization} (${selectedDetails.id}).`
+            : undefined
+        }
+        titleId="log-stage-title"
+      >
+        <form onSubmit={handleEventSubmit} className="space-y-4">
+          {eventError && (
+            <StatusNotice tone="error" role="alert">
+              {eventError}
+            </StatusNotice>
+          )}
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="event-stage-select"
+              className="block text-[13px] font-medium text-[#18251D]"
+            >
+              Lifecycle stage
+            </label>
+            <select
+              id="event-stage-select"
+              value={eventStage}
+              onChange={(e) => setEventStage(e.target.value)}
+              className="w-full min-h-[44px] px-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+            >
+              {LOGGABLE_STAGES.map((st) => (
+                <option key={st.key} value={st.key}>
+                  {st.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label
+                htmlFor="event-actor-input"
+                className="block text-[13px] font-medium text-[#18251D]"
+              >
+                Handler or operator
+              </label>
+              <input
+                id="event-actor-input"
+                type="text"
+                value={eventActor}
+                onChange={(e) => setEventActor(e.target.value)}
+                placeholder="e.g. Facility Operator"
+                required
+                className="w-full min-h-[44px] px-3.5 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="event-location-input"
+                className="block text-[13px] font-medium text-[#18251D]"
+              >
+                Location
+              </label>
+              <input
+                id="event-location-input"
+                type="text"
+                value={eventLocation}
+                onChange={(e) => setEventLocation(e.target.value)}
+                placeholder="e.g. Okhla Processing Facility"
+                className="w-full min-h-[44px] px-3.5 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="event-notes-input"
+              className="block text-[13px] font-medium text-[#18251D]"
+            >
+              Notes
+            </label>
+            <textarea
+              id="event-notes-input"
+              rows={3}
+              value={eventNotes}
+              onChange={(e) => setEventNotes(e.target.value)}
+              placeholder="Weight verified, contamination notes, or transport receipt…"
+              className="w-full p-3 rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] text-[14px] text-[#18251D]"
+            />
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-2.5">
+            <button
+              type="button"
+              onClick={() => setEventOpen(false)}
+              className="px-4 min-h-[44px] rounded-[8px] border border-[#DCE3DA] bg-[#FFFFFF] hover:bg-[#EEF2EB] text-[14px] font-medium text-[#18251D]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={eventBusy}
+              className="px-5 min-h-[44px] rounded-[8px] bg-[#245C3B] hover:bg-[#19452B] disabled:bg-[#DCE3DA] disabled:text-[#526158] text-white text-[14px] font-medium"
+            >
+              {eventBusy ? 'Saving…' : 'Save update'}
+            </button>
+          </div>
+        </form>
+      </ModalDialog>
     </div>
   );
 };

@@ -1,66 +1,66 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 
     <!-- Primary SEO Metadata -->
-    <title>Wasto — Automated Waste Classification, Actuation & Tracking Platform</title>
-    <meta name="title" content="Wasto — Automated Waste Classification, Actuation & Tracking Platform" />
+    <title>Wasto — Automated Waste Classification, Actuation &amp; Tracking</title>
+    <meta name="title" content="Wasto — Automated Waste Classification, Actuation &amp; Tracking" />
     <meta
       name="description"
-      content="AI-powered automated waste segregation platform combining MobileNetV3 edge computer vision, non-blocking Arduino Uno flap actuation, and municipal source-to-recycling lifecycle tracking."
+      content="Classify materials, monitor sorting, and follow waste from collection to processing with MobileNetV3 vision, hardware actuation, and batch tracking."
     />
     <meta
       name="keywords"
-      content="waste classification, automated waste sorting, computer vision waste segregation, MobileNetV3, Arduino waste sorter, smart dustbin, municipal waste tracking, sustainability IoT, recycling automation, circular economy"
+      content="waste classification, automated waste sorting, computer vision waste segregation, MobileNetV3, Arduino waste sorter, smart dustbin, municipal waste tracking, recycling automation"
     />
     <meta name="author" content="Wasto Project Team" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <link rel="canonical" href="https://wasto.netlify.app/" />
 
-    <!-- Mobile & PWA Theme Metadata -->
-    <meta name="theme-color" content="#17DE8F" />
-    <meta name="color-scheme" content="dark" />
+    <!-- Mobile & PWA Theme Metadata (Always Light) -->
+    <meta name="theme-color" content="#F7F8F4" />
+    <meta name="color-scheme" content="light" />
     <meta name="application-name" content="Wasto" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Wasto" />
 
-    <!-- Open Graph / Facebook / LinkedIn / WhatsApp -->
+    <!-- Open Graph / Social -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Wasto" />
     <meta property="og:url" content="https://wasto.netlify.app/" />
-    <meta property="og:title" content="Wasto — Automated Waste Classification, Actuation & Tracking Platform" />
+    <meta property="og:title" content="Wasto — Automated Waste Classification, Actuation &amp; Tracking" />
     <meta
       property="og:description"
-      content="AI-powered automated waste segregation platform combining MobileNetV3 edge computer vision, Arduino microcontroller actuation, and municipal source-to-recycling lifecycle tracking."
+      content="Classify materials, monitor sorting, and follow waste from collection to processing."
     />
     <meta property="og:image" content="https://wasto.netlify.app/og-image.png" />
     <meta property="og:image:secure_url" content="https://wasto.netlify.app/og-image.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Wasto - Automated Waste Classification, Actuation and Tracking Platform" />
+    <meta property="og:image:alt" content="Wasto automated waste classification and tracking platform" />
     <meta property="og:locale" content="en_US" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="https://wasto.netlify.app/" />
-    <meta name="twitter:title" content="Wasto — Automated Waste Classification & Tracking Platform" />
+    <meta name="twitter:title" content="Wasto — Automated Waste Classification &amp; Tracking" />
     <meta
       name="twitter:description"
-      content="Real-time MobileNetV3 edge vision, non-blocking Arduino Uno flap actuation, and complete municipal chain of custody."
+      content="Classify materials, monitor sorting, and follow waste from collection to processing."
     />
     <meta name="twitter:image" content="https://wasto.netlify.app/og-image.png" />
-    <meta name="twitter:image:alt" content="Wasto AI waste classification and tracking platform preview" />
+    <meta name="twitter:image:alt" content="Wasto waste classification and tracking interface" />
 
     <!-- Favicon & Icons -->
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -101,11 +101,11 @@
             },
             "description": "End-to-end automated waste segregation system combining MobileNetV3 edge computer vision with Arduino microcontroller physical actuation and source-to-recycling lifecycle tracking.",
             "featureList": [
-              "Real-time 9-class waste material classification via MobileNetV3Large",
+              "9-class waste material classification via MobileNetV3Large",
               "Non-blocking physical servo flap actuation across 3 discrete chutes (Organic, Recyclable, Residual)",
-              "Smart dustbin ultrasonic fill-level telemetry & proactive municipal alerting",
-              "Municipal chain-of-custody tracking & weighbridge tare audit trail",
-              "Zero-False-Biodegradability Invariant with failsafe manual review abstention"
+              "Ultrasonic fill-level telemetry",
+              "Municipal chain-of-custody tracking",
+              "Failsafe manual review abstention for uncertain items"
             ]
           },
           {
@@ -124,19 +124,12 @@
       }
     </script>
   </head>
-  <body class="bg-[#0B0F17] text-gray-100 min-h-screen">
+  <body class="bg-[#F7F8F4] text-[#18251D] min-h-screen antialiased">
     <noscript>
-      <div style="padding: 2rem; max-width: 800px; margin: 0 auto; color: #f3f4f6; font-family: sans-serif;">
-        <h1 style="color: #17DE8F;">Wasto: Automated Waste Classification, Actuation & Tracking Platform</h1>
-        <p>Wasto is an end-to-end automated waste segregation and municipal lifecycle tracking platform. It bridges optical edge deep learning (MobileNetV3Large), embedded microcontroller servo flap deflection (Arduino Uno), and persistent source-to-recycling provenance tracking.</p>
-        <h2>Key Capabilities</h2>
-        <ul>
-          <li><strong>Optical Edge Classification:</strong> 9 material classes (Organic, Aluminium, Carton, Glass, Paper &amp; Cardboard, Plastic, Other Plastics, Textiles, Wood).</li>
-          <li><strong>3-Chute Physical Deflection:</strong> Servo-actuated flaps for Chute 1 (Organic), Chute 2 (Recyclable), and Chute 3 (Residual) with failsafe manual review abstention.</li>
-          <li><strong>Smart Dustbin Telemetry:</strong> Ultrasonic fill-level telemetry alerting authorities before overflow.</li>
-          <li><strong>Municipal Batch Provenance:</strong> Immutable audit trail from source registration, transport pickup, weighbridge verification to recycling disposition.</li>
-        </ul>
-        <p>Please enable JavaScript to access the interactive real-time dashboard and classification tools.</p>
+      <div style="padding: 2rem; max-width: 720px; margin: 0 auto; color: #18251D; background: #F7F8F4; font-family: system-ui, -apple-system, sans-serif;">
+        <h1 style="color: #245C3B; margin-bottom: 0.75rem;">Wasto — Automated Waste Classification &amp; Tracking</h1>
+        <p style="color: #526158; line-height: 1.6;">Wasto classifies waste materials, monitors automated sorting, and tracks batches from collection to processing.</p>
+        <p style="margin-top: 1rem;">Please enable JavaScript to open the interactive Wasto workspace.</p>
       </div>
     </noscript>
     <div id="root"></div>

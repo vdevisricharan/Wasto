@@ -1,13 +1,13 @@
 {
   "name": "Wasto — Automated Waste Classification & Tracking",
   "short_name": "Wasto",
-  "description": "AI-driven waste classification, IoT fill monitoring, and municipal chain-of-custody tracking.",
+  "description": "Classify materials, monitor sorting, and follow waste from collection to processing.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#0B0F17",
-  "theme_color": "#17DE8F",
+  "background_color": "#F7F8F4",
+  "theme_color": "#245C3B",
   "categories": ["utilities", "sustainability", "business", "productivity"],
   "icons": [
     {

@@ -8,46 +8,46 @@ export interface TabMetadata {
 
 export const TAB_SEO_CONFIG: Record<string, TabMetadata> = {
   overview: {
-    title: 'Wasto — Automated Waste Classification, Actuation & Tracking Platform',
+    title: 'Overview — Wasto Waste Operations',
     description:
-      'AI-powered automated waste segregation platform combining MobileNetV3 edge computer vision, non-blocking Arduino Uno flap actuation, and municipal source-to-recycling lifecycle tracking.',
+      'Classify materials, monitor sorting, and follow waste from collection to processing.',
     keywords:
-      'waste classification, automated waste sorting, computer vision waste segregation, MobileNetV3, Arduino waste sorter, smart dustbin, municipal waste tracking, sustainability IoT',
+      'waste classification, automated waste sorting, computer vision waste segregation, MobileNetV3, Arduino waste sorter, municipal waste tracking',
   },
   classify: {
-    title: 'Classify Waste | Wasto Automated Material Classifier',
+    title: 'Classify Waste — Wasto',
     description:
-      'Upload single images or bulk batches for real-time 9-class waste classification with MobileNetV3 deep learning, confidence metrics, and 3-chute deflection routing.',
+      'Add a photo or batch of images to identify waste materials and review their sorting destination.',
     keywords:
-      'waste classification, image classifier, deep learning waste sort, recyclable detection, compost classification, MobileNetV3 waste test',
+      'waste classification, image classifier, recyclable detection, compost classification, MobileNetV3',
   },
   monitor: {
-    title: 'Live Sorter Monitor & Hardware Telemetry | Wasto',
+    title: 'Live Monitor — Wasto',
     description:
-      'Real-time camera feed, servo deflection flap angles (Chute 1 Organic, Chute 2 Recyclable, Chute 3 Residual), conveyor telemetry, and smart dustbin ultrasonic fill levels.',
+      'Monitor camera frames, live material classification, and sorting flap actuation status.',
     keywords:
-      'live waste sorter monitor, servo flap angle, conveyor camera vision, ultrasonic dustbin telemetry, Arduino hardware monitor',
+      'live waste sorter monitor, servo flap angle, conveyor camera vision, Arduino hardware monitor',
   },
   tracking: {
-    title: 'Municipal Waste Tracking & Chain of Custody | Wasto',
+    title: 'Waste Tracking — Wasto',
     description:
-      'End-to-end municipal batch provenance: register campus waste batches, dispatch collection vehicles, log weighbridge tare, and track optical sorting verification.',
+      'Follow waste batches from source collection to transport, facility sorting, and final processing.',
     keywords:
-      'municipal waste tracking, chain of custody waste management, recycling provenance, weighbridge tare tracking, circular economy audit',
+      'municipal waste tracking, chain of custody waste management, recycling provenance',
   },
   history: {
-    title: 'Classification Audit History & Analytics | Wasto',
+    title: 'History — Wasto',
     description:
-      'Explore immutable sorting logs, material distribution breakdowns, confidence scores, actuated chute angles, and diversion rates from municipal waste runs.',
+      'Review classification history, sorting destinations, confidence scores, and CSV exports.',
     keywords:
-      'waste sorting analytics, recycling diversion rate, municipal sorting log, classification history, waste data audit',
+      'waste sorting log, classification history, waste audit export',
   },
   architecture: {
-    title: 'System Architecture & ML Benchmarks | Wasto',
+    title: 'Model & System — Wasto',
     description:
-      'Technical specifications of the Wasto platform: MobileNetV3Large inference latency benchmarks, Arduino Uno non-blocking UART protocol, and failsafe abstention policies.',
+      'Classification model details, sorting policy rules, hardware configuration, and measured benchmarks.',
     keywords:
-      'MobileNetV3 benchmark, edge AI architecture, Arduino Uno UART protocol, zero false biodegradability, waste sorting system design',
+      'MobileNetV3 benchmark, Arduino Uno UART protocol, waste sorting policy',
   },
 };
 
@@ -57,10 +57,8 @@ export function useSEO(currentTab: string) {
     const baseCanonical = 'https://wasto.netlify.app/';
     const currentUrl = currentTab === 'overview' ? baseCanonical : `${baseCanonical}#${currentTab}`;
 
-    // Update Document Title
     document.title = config.title;
 
-    // Helper to create or update meta tags
     const setMetaTag = (attributeName: string, attributeValue: string, content: string) => {
       let el = document.querySelector(`meta[${attributeName}="${attributeValue}"]`);
       if (!el) {
@@ -71,7 +69,6 @@ export function useSEO(currentTab: string) {
       el.setAttribute('content', content);
     };
 
-    // Helper to update link tags
     const setLinkTag = (rel: string, href: string) => {
       let el = document.querySelector(`link[rel="${rel}"]`);
       if (!el) {
@@ -82,21 +79,16 @@ export function useSEO(currentTab: string) {
       el.setAttribute('href', href);
     };
 
-    // Standard SEO Tags
     setMetaTag('name', 'description', config.description);
     if (config.keywords) {
       setMetaTag('name', 'keywords', config.keywords);
     }
-
-    // Canonical link
     setLinkTag('canonical', currentUrl);
 
-    // Open Graph Meta Tags
     setMetaTag('property', 'og:title', config.title);
     setMetaTag('property', 'og:description', config.description);
     setMetaTag('property', 'og:url', currentUrl);
 
-    // Twitter Card Meta Tags
     setMetaTag('name', 'twitter:title', config.title);
     setMetaTag('name', 'twitter:description', config.description);
     setMetaTag('name', 'twitter:url', currentUrl);
